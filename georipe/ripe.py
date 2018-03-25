@@ -10,12 +10,10 @@ import itertools
 entries = ('ip_begin', 'ip_end', 'inetnum', 'netname', 'descr', 'country', 'notify', 'address', 'phone')
 RIPE_DB = os.path.join( os.path.dirname(__file__), 'ripe.db' )
 
-if os.path.isfile(RIPE_DB):
-	db = sqlite3.connect(RIPE_DB)
-	db.text_factory = str
-	sql = db.cursor()
-else:
-	db = None
+
+db = sqlite3.connect(RIPE_DB)
+db.text_factory = str
+sql = db.cursor()
 
 items = ['inetnum', 'netname']
 
@@ -34,6 +32,12 @@ arg_parser.add_argument("-phone", dest='phone', action="append", help='search ne
 
 arg_parser.add_argument("items", nargs='*', default=['inetnum', 'netname', 'descr', 'country', 'notify', 'address', 'phone'], help="one or more: inetnum,netname,descr,country,notify,address,phone")
 
+def check_db():
+	try:
+		sql.execute("select 1 from networks limit 1")
+		return True
+	except:
+		return False
 
 def cidr_to_min_max(cidr):
 	if len( cidr.split('/') ) == 2:
@@ -244,7 +248,7 @@ def main( argv=["-h"] ):
 		if args.phone:
 			params['phone'] = args.phone
 		if params:
-			if db:
+			if check_db():
 				netblocks = ripe_search( params )
 			else:
 				print "update database first"

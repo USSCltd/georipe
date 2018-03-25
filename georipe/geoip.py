@@ -8,12 +8,9 @@ import itertools
 
 GEOIP_DB = os.path.join( os.path.dirname(__file__), 'geoip.db' )
 
-if os.path.isfile(GEOIP_DB):
-	db = sqlite3.connect(GEOIP_DB)
-	db.text_factory = str
-	sql = db.cursor()
-else:
-	db = None
+db = sqlite3.connect(GEOIP_DB)
+db.text_factory = str
+sql = db.cursor()
 
 items = ['network']
 squares = []
@@ -39,6 +36,12 @@ arg_parser.add_argument("-resolve-whois", dest="resolve_whois", action="store_tr
 
 arg_parser.add_argument("items", nargs='*', default=['network', 'asn', 'org', 'continent', 'country', 'city', 'lat', 'long'], help="one or more: network,asn,org,continent,country,city,lat,long")
 
+def check_db():
+	try:
+		sql.execute("select 1 from geoip limit 1")
+		return True
+	except:
+		return False
 
 def cidr_to_min_max(cidr):
 	if len( cidr.split('/') ) == 2:
@@ -140,6 +143,7 @@ def update(tmpfile):
 
 	tmpfile.truncate()
 	download(uri=DB_ASN, target=tmpfile)
+	print '\nunpacking...'
 	z = ZipFile( tmpfile )
 	db_asn = ''
 	for compressed_filepath in z.namelist():
@@ -148,6 +152,7 @@ def update(tmpfile):
 	if not db_asn:
 		print "'GeoLite2-ASN-Blocks-IPv4.csv' not found in %s" % DB_ASN
 		return False
+	print 'importing...'
 	n = 1
 	for asn in csv.DictReader( BytesIO(db_asn) ):
 		net = asn['network']
@@ -403,7 +408,7 @@ def main( argv=['-h'] ):
 		if args.lat_long_km:
 			params['circle'] = args.lat_long_km
 		if params:
-			if db:
+			if check_db():
 				netblocks = geo_search( params )
 			else:
 				print "update database first"
