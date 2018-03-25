@@ -1,0 +1,5 @@
+#!/usr/bin/python
+from georipe import ripe
+from sys import argv
+
+ripe.main( argv[1:] or ['-h'] )

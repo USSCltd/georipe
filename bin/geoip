@@ -1,0 +1,5 @@
+#!/usr/bin/python
+from georipe import geoip
+from sys import argv
+
+geoip.main( argv[1:] or ['-h'] )
