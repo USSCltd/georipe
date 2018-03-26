@@ -8,7 +8,12 @@ import itertools
 
 GEOIP_DB = os.path.join( os.path.dirname(__file__), 'geoip.db' )
 
-db = sqlite3.connect(GEOIP_DB)
+try:
+	db = sqlite3.connect(GEOIP_DB)
+except:
+	print "permission denied to open %s" % GEOIP_DB
+	exit()
+	
 db.text_factory = str
 sql = db.cursor()
 

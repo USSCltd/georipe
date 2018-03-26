@@ -10,8 +10,12 @@ import itertools
 entries = ('ip_begin', 'ip_end', 'inetnum', 'netname', 'descr', 'country', 'notify', 'address', 'phone')
 RIPE_DB = os.path.join( os.path.dirname(__file__), 'ripe.db' )
 
+try:
+	db = sqlite3.connect(RIPE_DB)
+except:
+	print "permission denied to open %s" % RIPE_DB
+	exit()
 
-db = sqlite3.connect(RIPE_DB)
 db.text_factory = str
 sql = db.cursor()
 
