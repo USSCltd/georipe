@@ -33,6 +33,7 @@ arg_parser.add_argument("-country", dest='country', action="append", help='searc
 arg_parser.add_argument("-notify", dest='notify', action="append", help='search networks by notify')
 arg_parser.add_argument("-address", dest='address', action="append", help='search networks by address')
 arg_parser.add_argument("-phone", dest='phone', action="append", help='search networks by phone')
+arg_parser.add_argument("-tree", dest='tree', action="store_true", help='show tree of parents networks')
 
 arg_parser.add_argument("items", nargs='*', default=['inetnum', 'netname', 'descr', 'country', 'notify', 'address', 'phone'], help="one or more: inetnum,netname,descr,country,notify,address,phone")
 
@@ -147,6 +148,10 @@ def do_search(items, params):
 		elif attr.find('no_') != -1:
 			statement.append( "(%s NOT LIKE ?)" % attr[3:] )
 			args.append( val )
+		elif attr.find('_range') != -1:
+			_min, _max = val.split('|')
+			statement.append( "(inetnum = (SELECT inetnum FROM networks WHERE ? BETWEEN ip_begin AND ip_end AND ? BETWEEN ip_begin AND ip_end ORDER BY ip_begin DESC LIMIT 1) )" )
+			args.extend( [_min, _max] )
 		else:
 			statement.append( "(%s LIKE ?)" % attr )
 			args.append( val )
@@ -188,17 +193,42 @@ def ripe_search(args):
 				params[attr].append(val)
 	return search(items, params)
 
+def discover_tree(netblocks):
+	deep = 0
+	while netblocks:
+		inetnum = netblocks[0]['inetnum']
+		print " "*deep + inetnum
+		ip_from, ip_to = cidr_to_min_max(inetnum)
+		ip_from -= 1
+		ip_to += 1
+		params = { '_range': [ "%d|%d" % (ip_from, ip_to) ] }
+		netblocks = ripe_search(params)
+		deep += 1
+
+def print_results(netblocks):
+	summary = get_stat(netblocks, items)
+	try:
+		margins = map( lambda i: max( map( lambda n: len(str(n.get(i) or '').decode('utf-8')), netblocks ) + [len(i), len(summary[i])] ), items )
+	except:
+		margins = map( lambda i: max( map( lambda n: len(str(n.get(i) or '')), netblocks ) + [len(i), len(summary[i])] ), items )
+	if len(items) > 1:
+		print_row( tuple(items), margins )
+		print_row( tuple( map( lambda m: '-'*m, margins ) ), margins )
+	for netblock in netblocks:
+		print_row( map( lambda i: str( netblock.get(i) or '' ), items ), margins )
+	if len(items) > 1:
+		print_row( tuple( map( lambda m: '-'*m, margins ) ), margins )
+		print_row( tuple( map( lambda i: str( summary.get(i) or '' ), items ) ), margins )
 
 def get_stat(netblocks, items):
 	statistics = {}
 	for item in items:
 		if item == 'inetnum':
-			ips = set()
+			ips = 0
 			for network in map( lambda n: n.get('inetnum'), netblocks ):
 				_min,_max = cidr_to_min_max(network)
-				for ip in xrange( _min, _max ):
-					ips.add(ip)
-			statistics[item] = '%d ip' % len(ips)
+				ips = _max - _min
+			statistics[item] = '%d ip' % ips
 		else:
 			vals = set()
 			for val in map( lambda n: str(n.get(item)) or '', netblocks ):
@@ -259,19 +289,10 @@ def main( argv=["-h"] ):
 				return
 
 	if netblocks:
-		summary = get_stat(netblocks, items)
-		try:
-			margins = map( lambda i: max( map( lambda n: len(str(n.get(i) or '').decode('utf-8')), netblocks ) + [len(i), len(summary[i])] ), items )
-		except:
-			margins = map( lambda i: max( map( lambda n: len(str(n.get(i) or '')), netblocks ) + [len(i), len(summary[i])] ), items )
-		if len(items) > 1:
-			print_row( tuple(items), margins )
-			print_row( tuple( map( lambda m: '-'*m, margins ) ), margins )
-		for netblock in netblocks:
-			print_row( map( lambda i: str( netblock.get(i) or '' ), items ), margins )
-		if len(items) > 1:
-			print_row( tuple( map( lambda m: '-'*m, margins ) ), margins )
-			print_row( tuple( map( lambda i: str( summary.get(i) or '' ), items ) ), margins )
+		if args.tree and len(netblocks) == 1:
+			discover_tree(netblocks)
+		else:
+			print_results(netblocks)
 
 	if db:
 		db.close()
