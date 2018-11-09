@@ -1,7 +1,6 @@
 #!/usr/bin/python
 import sqlite3
 import netaddr
-import chardet
 import argparse
 import sys,os
 import itertools
@@ -33,6 +32,7 @@ arg_parser.add_argument("-country", dest='country', action="append", help='searc
 arg_parser.add_argument("-notify", dest='notify', action="append", help='search networks by notify')
 arg_parser.add_argument("-address", dest='address', action="append", help='search networks by address')
 arg_parser.add_argument("-phone", dest='phone', action="append", help='search networks by phone')
+
 arg_parser.add_argument("-tree", dest='tree', action="store_true", help='show tree of parents networks')
 
 arg_parser.add_argument("items", nargs='*', default=['inetnum', 'netname', 'descr', 'country', 'notify', 'address', 'phone'], help="one or more: inetnum,netname,descr,country,notify,address,phone")
@@ -80,11 +80,13 @@ def update(tmpfile):
 
 	print "\nunpacking..."
 	with gzip.open(tmpfile.name, 'rb') as gz:
-		print 'importing...'
+		sys.stdout.write("cleaning old database")
 		sql.execute("DROP TABLE IF EXISTS networks")
 		sql.execute( 'CREATE TABLE networks(%s)' % ','.join( map(lambda e:"%s INT"%e if e.startswith('ip_') else "%s TEXT"%e, entries) ) )
 		#sql.execute( 'CREATE TABLE asns(%s)' % ','.join( map(lambda e:"%s TEXT"%e, entries) ) )
 		db.commit()
+		sys.stdout.write('\rimporting...            ')
+		sys.stdout.flush()
 		nets = {}
 		n = 1
 		for line in gz:
@@ -93,13 +95,13 @@ def update(tmpfile):
 					if entry == 'inetnum' and nets and nets.get('inetnum'):
 						statement = "INSERT INTO networks VALUES(%s)"%','.join( map(lambda e:'?', entries) )
 						for i in xrange( len( nets.get('inetnum') ) ):
-							sql.execute( statement, map(lambda e:nets.get(e)[i] if type(nets.get(e))==list else nets.get(e), entries) )
-						nets = {}
+							sql.execute( statement, map(lambda e:nets.get(e)[i] if type(nets.get(e))==list else nets.get(e,''), entries) )
 						n += 1
 						if n % 25000 == 0:
 							db.commit()
 							sys.stdout.write("\r%d networks" % n)
 							sys.stdout.flush()
+						nets = {}
 					if entry == 'inetnum':
 						(ip_from, ip_to) = line[ len(entry)+1: ].strip().split('-')
 						nets['inetnum'] = []
@@ -110,24 +112,23 @@ def update(tmpfile):
 							_min,_max = cidr_to_min_max( str(cidr) )
 							nets['ip_begin'].append( _min )
 							nets['ip_end'].append( _max )
-					else:
-						try:
-							content = line[ len(entry)+1: ].strip()
-							if not content:
-								break
+					elif nets.get('inetnum'):
+						content = line[ len(entry)+1: ].strip()
+						if not content:
+							break
+						if entry in nets:
+							nets[entry] += '; ' + content
+						else:	
 							nets[entry] = content
-						except:
-							codepage = chardet.detect(content)
-							try:
-								nets[entry] = content.decode( codepage.get('encoding') )
-							except Exception as e:
-								pass
+
+		db.commit()
+		sys.stdout.write("\r%d networks\n" % n)
+		sys.stdout.flush()
 		sql.execute("CREATE INDEX ip_begin_index ON networks(ip_begin)")
 		sql.execute("CREATE INDEX ip_end_index ON networks(ip_end)")
 		sql.execute("CREATE INDEX inetnum_index ON networks(inetnum)")
 		db.commit()
-		sys.stdout.write("\r%d networks\n" % n)
-		sys.stdout.flush()
+
 
 def do_search(items, params):
 	statement = []
@@ -214,11 +215,13 @@ def print_results(netblocks):
 	if len(items) > 1:
 		print_row( tuple(items), margins )
 		print_row( tuple( map( lambda m: '-'*m, margins ) ), margins )
-	for netblock in netblocks:
-		print_row( map( lambda i: str( netblock.get(i) or '' ), items ), margins )
-	if len(items) > 1:
+		for netblock in netblocks:
+			print_row( map( lambda i: str( netblock.get(i) or '' ), items ), margins )
 		print_row( tuple( map( lambda m: '-'*m, margins ) ), margins )
 		print_row( tuple( map( lambda i: str( summary.get(i) or '' ), items ) ), margins )
+	else:
+		for netblock in netblocks:
+			print_row( map( lambda i: str( netblock.get(i) or '' ), items ), [0] )
 
 def get_stat(netblocks, items):
 	statistics = {}
@@ -227,7 +230,7 @@ def get_stat(netblocks, items):
 			ips = 0
 			for network in map( lambda n: n.get('inetnum'), netblocks ):
 				_min,_max = cidr_to_min_max(network)
-				ips = _max - _min
+				ips += _max - _min
 			statistics[item] = '%d ip' % ips
 		else:
 			vals = set()

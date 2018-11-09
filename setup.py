@@ -3,7 +3,7 @@ from distutils.core import setup
 setup(
   name = 'georipe',
   packages = ['georipe'],
-  version = '1.0.2',
+  version = '1.0.3',
   description = 'RIPE and GEOIP mass searching reconnaissance tool',
   author = 'USSC',
   author_email = 'usscltd@gmail.com',
@@ -18,6 +18,6 @@ setup(
     'pykml',
     'lxml',
     'ipwhois',
-    'chardet'
+    'folium'
   ]
 )
