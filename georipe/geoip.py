@@ -35,9 +35,11 @@ arg_parser.add_argument('-continent', dest="continent", action="append", help='s
 arg_parser.add_argument('-square', dest="lat_long_lat_long", action="append", help='search networks in square area')
 arg_parser.add_argument('-circle', dest="lat_long_km", action="append", help='search networks in circle area')
 
-arg_parser.add_argument("-kml", dest="save_as_kml", action="store_true", help="save coordinates of netblocks as KML")
 arg_parser.add_argument("-resolve-ripe", dest="resolve_ripe", action="store_true", help="ripe db resolve netname (faster)")
 arg_parser.add_argument("-resolve-whois", dest="resolve_whois", action="store_true", help="whois resolve netname (slower)")
+
+arg_parser.add_argument("-kml", dest="save_as_kml", action="store_true", help="save coordinates of netblocks as KML")
+arg_parser.add_argument("-html", dest="save_to_html", help="save coordinates of netblocks as HTML")
 
 arg_parser.add_argument("items", nargs='*', default=['network', 'asn', 'org', 'continent', 'country', 'city', 'lat', 'long'], help="one or more: network,asn,org,continent,country,city,lat,long")
 
@@ -193,12 +195,12 @@ def do_search(items, params):
 
 	for attr,val in params.items():
 		if attr == 'square':
-			(from_latitude,to_latitude,from_longitude,to_longitude) = _check_square( *map( _sign, val.split() ) )
+			(from_latitude,to_latitude,from_longitude,to_longitude) = _check_square( *map( _sign, val.split(',') ) )
 			statement.append( "(lat >= ? AND lat <= ? AND long >= ? AND long <= ?)" )
 			args.extend( [from_latitude, to_latitude, from_longitude, to_longitude] )
 			squares.append( [from_latitude, to_latitude, from_longitude, to_longitude] )
 		elif attr == 'circle':
-			lat, lon, radius_km = val.split()
+			lat, lon, radius_km = val.split(',')
 			lat, lon = map( _sign, [lat, lon] )
 			radius = float(radius_km) * ( 1.0 / 110.574 )
 			#radius = float(radius_km) * ( 1.0 / ( 111.320*math.cos(lat) ) )
@@ -351,16 +353,45 @@ def to_kml(netblocks):
 		places.append( draw_circle( *map( float, circle ) ) )
 	return etree.tostring( KML.Folder( *tuple(places) ) )
 
+def save_html(netblocks, items, outfile):
+	import folium
+	folium_map = folium.Map(location=[ netblocks[0].get('lat'), netblocks[0].get('long') ], zoom_start=10, tiles="CartoDB dark_matter")
+
+	coordinates = {}
+	for netblock in netblocks:
+		about_netblock = ' | '.join( map( lambda i: str( netblock.get(i) or '' ).decode('utf-8'), items ) )
+		if "%.04f,%.04f" % ( netblock.get('lat'), netblock.get('long') ) in coordinates.keys():
+			coordinates[ "%.04f,%.04f" % ( netblock.get('lat'), netblock.get('long') ) ] += "<br>" + about_netblock
+		else:
+			coordinates[ "%.04f,%.04f" % ( netblock.get('lat'), netblock.get('long') ) ] = about_netblock
+	
+	for lat_long,networks in coordinates.items():
+		folium.CircleMarker(location=map(float, lat_long.split(',')), popup=networks, radius=1).add_to(folium_map)
+
+	for circle in circles:
+		folium.CircleMarker(location=map(float, circle[:2]), radius=100, color="red").add_to(folium_map)
+
+	for square in squares:
+		from_latitude, from_longitude, to_latitude, to_longitude = map(float, square)
+		locations = [ (from_longitude,from_latitude) ]
+		locations.append( (to_longitude,from_latitude) )
+		locations.append( (to_longitude,to_latitude) )
+		locations.append( (from_longitude,to_latitude) )
+		locations.append( (from_longitude,from_latitude) )
+		folium.PolyLine(locations, weight=1, color="red").add_to(folium_map)
+
+	folium_map.save(outfile)
+
+
 def get_stat(netblocks, items):
 	statistics = {}
+	ips = 0
 	for item in items:
 		if item == 'network':
-			ips = set()
 			for network in map( lambda n: n.get('network'), netblocks ):
 				_min,_max = cidr_to_min_max(network)
-				for ip in xrange( _min, _max ):
-					ips.add(ip)
-			statistics[item] = '%d ip' % len(ips)
+				ips += _max - _min
+			statistics[item] = '%d ip' % ips
 		else:
 			vals = set()
 			for val in map( lambda n: str(n.get(item)) or '', netblocks ):
@@ -412,6 +443,13 @@ def main( argv=['-h'] ):
 			params['square'] = args.lat_long_lat_long
 		if args.lat_long_km:
 			params['circle'] = args.lat_long_km
+
+		if args.save_to_html:
+			if not 'lat' in items:
+				items.append('lat')
+			if not 'long' in items:
+				items.append('long')
+
 		if params:
 			if check_db():
 				netblocks = geo_search( params )
@@ -428,17 +466,23 @@ def main( argv=['-h'] ):
 
 	if netblocks and args.save_as_kml:
 		print to_kml( netblocks )
+	elif netblocks and args.save_to_html:
+		items.remove('lat')
+		items.remove('long')
+		save_html( netblocks, items, args.save_to_html )
 	elif netblocks:
 		summary = get_stat(netblocks, items)
 		margins = map( lambda i: max( map( lambda n: len(str(n.get(i) or '').decode('utf-8')), netblocks ) + [len(i), len(summary[i])] ), items )
 		if len(items) > 1:
 			print_row( tuple(items), margins )
 			print_row( tuple( map( lambda m: '-'*m, margins ) ), margins )
-		for netblock in netblocks:
-			print_row( map( lambda i: str( netblock.get(i) or '' ), items ), margins )
-		if len(items) > 1:
+			for netblock in netblocks:
+				print_row( map( lambda i: str( netblock.get(i) or '' ), items ), margins )
 			print_row( tuple( map( lambda m: '-'*m, margins ) ), margins )
 			print_row( tuple( map( lambda i: str( summary.get(i) or '' ), items ) ), margins )
+		else:
+			for netblock in netblocks:
+				print_row( map( lambda i: str( netblock.get(i) or '' ), items ), [0] )
 
 	if db:
 		db.close()
