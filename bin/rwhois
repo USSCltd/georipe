@@ -1,0 +1,5 @@
+#!/usr/bin/python
+from georipe import rwhois
+from sys import argv
+
+rwhois.main( argv[1:] or ['-h'] )
