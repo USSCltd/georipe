@@ -67,9 +67,9 @@ def update(tmpfile):
 	from zipfile import ZipFile
 	from io import BytesIO
 
-	DB_ASN = "http://geolite.maxmind.com/download/geoip/database/GeoLite2-ASN-CSV.zip"
-	DB_COUNTRY = "http://geolite.maxmind.com/download/geoip/database/GeoLite2-Country-CSV.zip"
-	DB_CITY = "http://geolite.maxmind.com/download/geoip/database/GeoLite2-City-CSV.zip"
+	DB_ASN = "http://web.archive.org/web/20191227183143/https://geolite.maxmind.com/download/geoip/database/GeoLite2-ASN-CSV.zip"
+	DB_COUNTRY = "http://web.archive.org/web/20191227183011/https://geolite.maxmind.com/download/geoip/database/GeoLite2-Country-CSV.zip"
+	DB_CITY = "http://web.archive.org/web/20191227182816/https://geolite.maxmind.com/download/geoip/database/GeoLite2-City-CSV.zip"
 
 	def download(uri,target):
 		print uri
@@ -273,10 +273,10 @@ def resolve_whois(netblocks):
 			pass
 
 def resolve_ripe(netblocks):
-	import ripe
+	import rwhois
 	for netblock in netblocks:
 		if netblock.get('network'):
-			results = ripe.do_search( ["netname"], { "inetnum": netblock['network'] } )
+			results = rwhois.do_search( ["netname"], { "inetnum": netblock['network'] } )
 			netname = results[0]['netname'] if results and results[0].get('netname') else ''
 			if netname:
 				netblock['netname'] = netname[:20]+'..' if len(netname) > 20 else netname
