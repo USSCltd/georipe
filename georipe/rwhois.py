@@ -5,7 +5,7 @@ import argparse
 import sys,os
 import itertools
 
-
+__version__ = '1.0.6.5'
 entries = ('ip_begin', 'ip_end', 'inetnum', 'netname', 'descr', 'city', 'country', 'notify', 'address', 'phone')
 RIR_DB = os.path.join( os.path.dirname(__file__), 'rir.db' )
 
@@ -21,31 +21,47 @@ sql = db.cursor()
 items = ['inetnum', 'netname']
 
 arg_parser = argparse.ArgumentParser(description="RIR search (ARIN, RIPE, APNIC, LACNIC, AfriNIC)")
-arg_parser.add_argument("-update", dest='update', action="store_true", help='update local database from remote GZ-archive')
+arg_parser.add_argument("-update", dest='update', nargs="*", help='update local database from remote GZ-archive')
+arg_parser.add_argument("-info", dest='info', action="store_true", help='show total amount netblocks')
 
 arg_parser.add_argument("-ip", dest='ipaddr', action="append", help='search network by IP')
 arg_parser.add_argument("-inetnum", dest='inetnum', action="append", help='search network by CIDR (parent)')
 arg_parser.add_argument("-inetnums", dest='inetnums', action="append", help='search networks by CIDR (nested)')
 arg_parser.add_argument("-netname", dest='netname', action="append", help='search networks by netname')
 arg_parser.add_argument("-descr", dest='descr', action="append", help='search networks by descr')
-arg_parser.add_argument("-city", dest='city', action="append", help='search networks by city (LACNIC)')
+arg_parser.add_argument("-city", dest='city', action="append", help='search networks by city')
 arg_parser.add_argument("-country", dest='country', action="append", help='search networks by country')
 arg_parser.add_argument("-notify", dest='notify', action="append", help='search networks by notify')
 arg_parser.add_argument("-address", dest='address', action="append", help='search networks by address')
 arg_parser.add_argument("-phone", dest='phone', action="append", help='search networks by phone')
+arg_parser.add_argument("-source", dest='source', action="append", help='search networks by source')
 
 arg_parser.add_argument("-tree", dest='tree', action="store_true", help='show tree of parents networks')
+arg_parser.add_argument("-version", dest="version", action="store_true", help="show version")
 
 arg_parser.add_argument("items", nargs='*', default=['inetnum', 'netname', 'descr', 'country', 'notify', 'address', 'phone'], help="one or more: inetnum,netname,descr,city,country,notify,address,phone")
 
+'''
+	RIPE: netname, descr, country, notify, address, phone
+	AFRINIC: netname, descr, country, notify, address, phone
+	APNIC: netname, descr, country
+	LACNIC: country, city
+	ARIN: descr, notify
+'''
 
 def check_db():
 	try:
 		sql.execute("select 1 from networks limit 1")
 		return True
 	except:
+		sql.execute('CREATE TABLE networks(%s, source TEXT)' % ','.join( map(lambda e:"%s INT"%e if e.startswith('ip_') else "%s TEXT"%e, entries) ))
 		return False
 
+def show_db_info():
+	for source in ('RIPE', 'AFRINIC', 'APNIC', 'LACNIC', 'ARIN'):
+		print source + ': ',
+		count, = sql.execute('SELECT COUNT(inetnum) FROM networks WHERE source=?', (source.lower(),))
+		print count[0]
 
 def cidr_to_min_max(cidr):
 	if len( cidr.split('/') ) == 2:
@@ -65,345 +81,130 @@ def cidr_to_min_max(cidr):
 	return _min,_max
 
 
-def reset_db():
-	sql.execute("DROP TABLE IF EXISTS networks")
-	sql.execute( 'CREATE TABLE networks(%s)' % ','.join( map(lambda e:"%s INT"%e if e.startswith('ip_') else "%s TEXT"%e, entries) ) )
-	#sql.execute( 'CREATE TABLE asns(%s)' % ','.join( map(lambda e:"%s TEXT"%e, entries) ) )
+def reset_db(source):
+	sql.execute("DELETE FROM networks WHERE source=?", (source,))
 	db.commit()
 
 
-def update_ripe(tmpfile):
+def download(url):
 	import urllib2
+	from tempfile import NamedTemporaryFile
+
+	try:
+		print url
+		resp = urllib2.urlopen(url)
+		size = int( resp.headers.getheader('content-length') or 0 )
+		downloaded = 0
+		tmpfile = NamedTemporaryFile()
+		while True:
+			data = resp.read(4096)
+			if not data:
+				break
+			tmpfile.write(data)
+			downloaded += len(data)
+			if size:
+				done = int(50 * downloaded / size)
+				sys.stdout.write( "\r[%s%s] %d/%d bytes" % ( '=' * done, ' ' * (50-done), downloaded, size ) )
+			else:
+				sys.stdout.write( "\r%d bytes" % downloaded )
+			sys.stdout.flush()
+		return tmpfile
+	except Exception as e:
+		print str(e)
+
+def parse(tmpfile, key, fields, source):
 	import gzip
 
-	DB = "ftp://ftp.ripe.net/ripe/dbase/ripe.db.gz"
-	print DB
-	resp = urllib2.urlopen(DB)
-	size = int( resp.headers.getheader('content-length') or 0 )
-	downloaded = 0
-	while True:
-		data = resp.read(4096)
-		if not data:
-			break
-		tmpfile.write(data)
-		downloaded += len(data)
-		if size:
-			done = int(50 * downloaded / size)
-			sys.stdout.write( "\r[%s%s] %d/%d bytes" % ( '=' * done, ' ' * (50-done), downloaded, size ) )
-		else:
-			sys.stdout.write( "\r%d bytes" % downloaded )
-		sys.stdout.flush()
-
 	print "\nunpacking..."
-	with gzip.open(tmpfile.name, 'rb') as gz:
-		sys.stdout.write('\rimporting...            ')
-		sys.stdout.flush()
-		nets = {}
-		n = 1
-		for line in gz:
-			for entry in entries:
-				if line.startswith(entry):
-					if entry == 'inetnum':
-						(ip_from, ip_to) = line[ len(entry)+1: ].strip().split('-')
-						nets['inetnum'] = []
-						nets['ip_begin'] = []
-						nets['ip_end'] = []
-						for cidr in netaddr.IPRange( ip_from.strip(), ip_to.strip() ).cidrs():
-							nets['inetnum'].append( str(cidr) )
-							_min,_max = cidr_to_min_max( str(cidr) )
-							nets['ip_begin'].append( _min )
-							nets['ip_end'].append( _max )
-					elif nets.get('inetnum'):
-						content = line[ len(entry)+1: ].strip()
-						if not content:
-							break
-						if entry in nets:
-							nets[entry] += '; ' + content
-						else:	
-							nets[entry] = content
-				elif line.strip() == '' and nets and nets.get('inetnum'):
-					if nets.get('netname') != 'NON-RIPE-NCC-MANAGED-ADDRESS-BLOCK':
-						statement = "INSERT INTO networks VALUES(%s)"%','.join( map(lambda e:'?', entries) )
-						for i in xrange( len( nets.get('inetnum') ) ):
-							sql.execute( statement, map(lambda e:nets.get(e)[i] if type(nets.get(e))==list else nets.get(e,''), entries) )
-					n += 1
-					if n % 25000 == 0:
-						db.commit()
-						sys.stdout.write("\r%d networks" % n)
-						sys.stdout.flush()
-					nets = {}
+	fields = ('ip_begin', 'ip_end') + (key,) + fields
+	try:
+		with gzip.open(tmpfile.name, 'rb') as gz:
+			gz._read_eof = lambda :False
+			sys.stdout.write('\rimporting...            ')
+			sys.stdout.flush()
+			nets = {}
+			n = 1
+			for line in gz:
+				for entry in fields:
+					if line.startswith(entry+':'):
+						if entry == key:
+							if line.find('/') != -1: # 198.148.174.0/24
+								cidr = line[ len(entry)+1: ].strip()
+								nets['inetnum'] = [cidr]
+								nets['ip_begin'] = []
+								nets['ip_end'] = []
+								_min,_max = cidr_to_min_max(cidr)
+								nets['ip_begin'].append(_min)
+								nets['ip_end'].append(_max)
+							else: # 82.129.219.120 - 82.129.219.127
+								(ip_from, ip_to) = line[ len(entry)+1: ].strip().split('-')
+								nets['inetnum'] = []
+								nets['ip_begin'] = []
+								nets['ip_end'] = []
+								for cidr in netaddr.IPRange( ip_from.strip(), ip_to.strip() ).cidrs():
+									nets['inetnum'].append( str(cidr) )
+									_min,_max = cidr_to_min_max( str(cidr) )
+									nets['ip_begin'].append( _min )
+									nets['ip_end'].append( _max )
+						elif nets.get('inetnum'):
+							content = line[ len(entry)+1: ].strip()
+							if not content:
+								break
+							if entry in nets:
+								nets[entry] += '; ' + content
+							else:	
+								nets[entry] = content
+					elif line.strip() == '' and nets and nets.get('inetnum'):
+						if nets.get('netname') != 'NON-RIPE-NCC-MANAGED-ADDRESS-BLOCK':
+							statement = "INSERT INTO networks VALUES({values}, '{source}')".format(values=','.join( map(lambda e:'?', entries) ), source=source)
+							for i in xrange( len( nets.get('inetnum') ) ):
+								sql.execute( statement, map(lambda e:nets.get(e)[i] if type(nets.get(e))==list else nets.get(e,''), entries) )
+							n += 1
+							if n % 25000 == 0:
+								db.commit()
+								sys.stdout.write("\r%d networks" % n)
+								sys.stdout.flush()
+						nets = {}
 
 		sys.stdout.write("\r%d networks\n" % n)
 		sys.stdout.flush()
 		db.commit()
 		tmpfile.close()
 
-
-def update_apnic(tmpfile):
-	import urllib2
-	import gzip
-
-	DB = "https://ftp.apnic.net/apnic/whois/apnic.db.inetnum.gz"
-	print DB
-	resp = urllib2.urlopen(DB)
-	size = int( resp.headers.getheader('content-length') or 0 )
-	downloaded = 0
-	while True:
-		data = resp.read(4096)
-		if not data:
-			break
-		tmpfile.write(data)
-		downloaded += len(data)
-		if size:
-			done = int(50 * downloaded / size)
-			sys.stdout.write( "\r[%s%s] %d/%d bytes" % ( '=' * done, ' ' * (50-done), downloaded, size ) )
-		else:
-			sys.stdout.write( "\r%d bytes" % downloaded )
-		sys.stdout.flush()
-
-	print "\nunpacking..."
-	with gzip.open(tmpfile.name, 'rb') as gz:
-		sys.stdout.write('\rimporting...            ')
-		sys.stdout.flush()
-		nets = {}
-		n = 1
-		for line in gz:
-			for entry in entries:
-				if line.startswith(entry):
-					if entry == 'inetnum':
-						(ip_from, ip_to) = line[ len(entry)+1: ].strip().split('-')
-						nets['inetnum'] = []
-						nets['ip_begin'] = []
-						nets['ip_end'] = []
-						try:
-							for cidr in netaddr.IPRange( ip_from.strip(), ip_to.strip() ).cidrs():
-								nets['inetnum'].append( str(cidr) )
-								_min,_max = cidr_to_min_max( str(cidr) )
-								nets['ip_begin'].append( _min )
-								nets['ip_end'].append( _max )
-						except:
-							print "error parse %s - %s" %  (ip_from, ip_to)
-					elif nets.get('inetnum'):
-						content = line[ len(entry)+1: ].strip()
-						if not content:
-							break
-						if entry in nets:
-							nets[entry] += '; ' + content
-						else:	
-							nets[entry] = content
-				elif line.strip() == '' and nets and nets.get('inetnum'):
-					statement = "INSERT INTO networks VALUES(%s)"%','.join( map(lambda e:'?', entries) )
-					for i in xrange( len( nets.get('inetnum') ) ):
-						sql.execute( statement, map(lambda e:nets.get(e)[i] if type(nets.get(e))==list else nets.get(e,''), entries) )
-					n += 1
-					if n % 25000 == 0:
-						db.commit()
-						sys.stdout.write("\r%d networks" % n)
-						sys.stdout.flush()
-					nets = {}
-
-		sys.stdout.write("\r%d networks\n" % n)
-		sys.stdout.flush()
-		db.commit()
-		tmpfile.close()
+	except Exception as e:
+		print str(e)
 
 
-def update_afrinic(tmpfile):
-	import urllib2
-	import gzip
+def update_ripe():
+	'inetnum:        212.140.128.192 - 212.140.128.255'
+	with download("ftp://ftp.ripe.net/ripe/dbase/ripe.db.gz") as tmpfile:
+		parse(tmpfile, key='inetnum', fields=('netname', 'descr', 'country', 'notify', 'address', 'phone'), source='ripe')
+	
+def update_apnic():
+	'inetnum:        218.7.99.128 - 218.7.99.159'
+	with download("https://ftp.apnic.net/apnic/whois/apnic.db.inetnum.gz") as tmpfile:
+		parse(tmpfile, key='inetnum', fields=('netname', 'descr', 'country'), source='apnic')
+	
+def update_afrinic():
+	'inetnum:        197.254.108.104 - 197.254.108.107'
+	with download("https://ftp.afrinic.net/dbase/afrinic.db.gz") as tmpfile:
+		parse(tmpfile, key='inetnum', fields=('netname', 'descr', 'country', 'notify', 'address', 'phone'), source='afrinic')
 
-	DB = "https://ftp.afrinic.net/dbase/afrinic.db.gz"
-	print DB
-	resp = urllib2.urlopen(DB)
-	size = int( resp.headers.getheader('content-length') or 0 )
-	downloaded = 0
-	while True:
-		data = resp.read(4096)
-		if not data:
-			break
-		tmpfile.write(data)
-		downloaded += len(data)
-		if size:
-			done = int(50 * downloaded / size)
-			sys.stdout.write( "\r[%s%s] %d/%d bytes" % ( '=' * done, ' ' * (50-done), downloaded, size ) )
-		else:
-			sys.stdout.write( "\r%d bytes" % downloaded )
-		sys.stdout.flush()
+def update_lacnic():
+	'inetnum:    189.108.202.160/29'
+	with download("https://ftp.lacnic.net/lacnic/dbase/lacnic.db.gz") as tmpfile:
+		parse(tmpfile, key='inetnum', fields=('country', 'city'), source='lacnic')
 
-	print "\nunpacking..."
-	with gzip.open(tmpfile.name, 'rb') as gz:
-		sys.stdout.write('\rimporting...            ')
-		sys.stdout.flush()
-		nets = {}
-		n = 1
-		for line in gz:
-			for entry in entries:
-				if line.startswith(entry):
-					if entry == 'inetnum':
-						(ip_from, ip_to) = line[ len(entry)+1: ].strip().split('-')
-						nets['inetnum'] = []
-						nets['ip_begin'] = []
-						nets['ip_end'] = []
-						for cidr in netaddr.IPRange( ip_from.strip(), ip_to.strip() ).cidrs():
-							nets['inetnum'].append( str(cidr) )
-							_min,_max = cidr_to_min_max( str(cidr) )
-							nets['ip_begin'].append( _min )
-							nets['ip_end'].append( _max )
-					elif nets.get('inetnum'):
-						content = line[ len(entry)+1: ].strip()
-						if not content:
-							break
-						if entry in nets:
-							nets[entry] += '; ' + content
-						else:	
-							nets[entry] = content
-				elif line.strip() == '' and nets and nets.get('inetnum'):
-					statement = "INSERT INTO networks VALUES(%s)"%','.join( map(lambda e:'?', entries) )
-					for i in xrange( len( nets.get('inetnum') ) ):
-						sql.execute( statement, map(lambda e:nets.get(e)[i] if type(nets.get(e))==list else nets.get(e,''), entries) )
-					n += 1
-					if n % 25000 == 0:
-						db.commit()
-						sys.stdout.write("\r%d networks" % n)
-						sys.stdout.flush()
-					nets = {}
+def update_arin():
+	'route:          198.148.174.0/24'
+	with download("https://ftp.arin.net/pub/rr/arin.db.gz") as tmpfile:
+		parse(tmpfile, key='route', fields=('descr', 'notify'), source='arin')
+	
 
-		sys.stdout.write("\r%d networks\n" % n)
-		sys.stdout.flush()
-		db.commit()
-		tmpfile.close()
-
-
-def update_lacnic(tmpfile):
-	import urllib2
-	import gzip
-
-	DB = "https://ftp.lacnic.net/lacnic/dbase/lacnic.db.gz"
-	print DB
-	resp = urllib2.urlopen(DB)
-	size = int( resp.headers.getheader('content-length') or 0 )
-	downloaded = 0
-	while True:
-		data = resp.read(4096)
-		if not data:
-			break
-		tmpfile.write(data)
-		downloaded += len(data)
-		if size:
-			done = int(50 * downloaded / size)
-			sys.stdout.write( "\r[%s%s] %d/%d bytes" % ( '=' * done, ' ' * (50-done), downloaded, size ) )
-		else:
-			sys.stdout.write( "\r%d bytes" % downloaded )
-		sys.stdout.flush()
-
-	print "\nunpacking..."
-	with gzip.open(tmpfile.name, 'rb') as gz:
-		sys.stdout.write('\rimporting...            ')
-		sys.stdout.flush()
-		nets = {}
-		n = 1
-		for line in gz:
-			for entry in entries:
-				if line.startswith(entry):
-					if entry == 'inetnum':
-						cidr = line[ len(entry)+1: ].strip()
-						nets['inetnum'] = [cidr]
-						nets['ip_begin'] = []
-						nets['ip_end'] = []
-						_min,_max = cidr_to_min_max(cidr)
-						nets['ip_begin'].append(_min)
-						nets['ip_end'].append(_max)
-					elif nets.get('inetnum'):
-						content = line[ len(entry)+1: ].strip()
-						if not content:
-							break
-						if entry in nets:
-							nets[entry] += '; ' + content
-						else:	
-							nets[entry] = content
-				elif line.strip() == '' and nets and nets.get('inetnum'):
-					statement = "INSERT INTO networks VALUES(%s)"%','.join( map(lambda e:'?', entries) )
-					for i in xrange( len( nets.get('inetnum') ) ):
-						sql.execute( statement, map(lambda e:nets.get(e)[i] if type(nets.get(e))==list else nets.get(e,''), entries) )
-					n += 1
-					if n % 25000 == 0:
-						db.commit()
-						sys.stdout.write("\r%d networks" % n)
-						sys.stdout.flush()
-					nets = {}
-
-		sys.stdout.write("\r%d networks\n" % n)
-		sys.stdout.flush()
-		db.commit()
-		tmpfile.close()
-
-
-def update_arin(tmpfile):
-	import urllib2
-
-	DB = "https://ftp.arin.net/pub/rr/arin.db"
-	print DB
-	resp = urllib2.urlopen(DB)
-	size = int( resp.headers.getheader('content-length') or 0 )
-	downloaded = 0
-	while True:
-		data = resp.read(4096)
-		if not data:
-			break
-		tmpfile.write(data)
-		downloaded += len(data)
-		if size:
-			done = int(50 * downloaded / size)
-			sys.stdout.write( "\r[%s%s] %d/%d bytes" % ( '=' * done, ' ' * (50-done), downloaded, size ) )
-		else:
-			sys.stdout.write( "\r%d bytes" % downloaded )
-		sys.stdout.flush()
-
-	print "\nunpacking..."
-	with open(tmpfile.name, 'rb') as arin:
-		sys.stdout.write('\rimporting...            ')
-		sys.stdout.flush()
-		nets = {}
-		n = 1
-		for line in arin:
-			for entry in entries:
-				if line.startswith(entry):
-					if entry == 'inetnum':
-						(ip_from, ip_to) = line[ len(entry)+1: ].strip().split('-')
-						nets['inetnum'] = []
-						nets['ip_begin'] = []
-						nets['ip_end'] = []
-						for cidr in netaddr.IPRange( ip_from.strip(), ip_to.strip() ).cidrs():
-							nets['inetnum'].append( str(cidr) )
-							_min,_max = cidr_to_min_max( str(cidr) )
-							nets['ip_begin'].append( _min )
-							nets['ip_end'].append( _max )
-					elif nets.get('inetnum'):
-						content = line[ len(entry)+1: ].strip()
-						if not content:
-							break
-						if entry in nets:
-							nets[entry] += '; ' + content
-						else:	
-							nets[entry] = content
-				elif line.strip() == '' and nets and nets.get('inetnum'):
-					statement = "INSERT INTO networks VALUES(%s)"%','.join( map(lambda e:'?', entries) )
-					for i in xrange( len( nets.get('inetnum') ) ):
-						sql.execute( statement, map(lambda e:nets.get(e)[i] if type(nets.get(e))==list else nets.get(e,''), entries) )
-					n += 1
-					if n % 25000 == 0:
-						db.commit()
-						sys.stdout.write("\r%d networks" % n)
-						sys.stdout.flush()
-					nets = {}
-
-		sys.stdout.write("\r%d networks\n" % n)
-		sys.stdout.flush()
-		db.commit()
-		tmpfile.close()
-
-
-def create_indexes():
+def rebuild_indexes():
+	sql.execute("DROP INDEX IF EXISTS ip_begin_index")
+	sql.execute("DROP INDEX IF EXISTS ip_end_index")
+	sql.execute("DROP INDEX IF EXISTS inetnum_index")
 	sql.execute("CREATE INDEX ip_begin_index ON networks(ip_begin)")
 	sql.execute("CREATE INDEX ip_end_index ON networks(ip_end)")
 	sql.execute("CREATE INDEX inetnum_index ON networks(inetnum)")
@@ -542,15 +343,22 @@ def main( argv=["-h"] ):
 	items = args.items
 	netblocks = []
 
-	if args.update:
-		from tempfile import NamedTemporaryFile	
-		reset_db()
-		for update in [update_afrinic, update_lacnic, update_apnic, update_arin, update_ripe]:
+	if args.version:
+		print __version__
+	elif args.update != None:
+		if not args.update:
+			args.update = ["afrinic", "lacnic", "apnic", "arin", "ripe"]
+		check_db()
+		for continent in args.update:
 			try:
-				update( NamedTemporaryFile() )
+				update = globals()['update_'+continent.lower()]
+				reset_db(continent)
+				update()
 			except Exception as e:
 				print "\n{update} error: {error}".format( update=update.__name__, error=str(e) )
-		create_indexes()
+		rebuild_indexes()
+	elif args.info:
+		show_db_info()
 	else:
 		params = {}
 		if args.ipaddr:
@@ -573,6 +381,8 @@ def main( argv=["-h"] ):
 			params['address'] = args.address
 		if args.phone:
 			params['phone'] = args.phone
+		if args.source:
+			params['source'] = args.source
 		if params:
 			if check_db():
 				netblocks = rir_search( params )

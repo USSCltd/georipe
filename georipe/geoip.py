@@ -5,7 +5,7 @@ import argparse
 import sys,os
 import itertools
 
-
+__version__ = '1.0.6.5'
 GEOIP_DB = os.path.join( os.path.dirname(__file__), 'geoip.db' )
 
 try:
@@ -23,6 +23,7 @@ circles = []
 
 arg_parser = argparse.ArgumentParser()
 arg_parser.add_argument("-update", dest='update', action="store_true", help='update local database from remote ZIP-archive')
+arg_parser.add_argument("-info", dest='info', action="store_true", help='show total amount netblocks')
 
 arg_parser.add_argument('-ip', dest="ipaddr", action="append", help='search network by IP')
 arg_parser.add_argument('-network', dest="network", action="append", help='search network by CIDR (parent)')
@@ -32,16 +33,17 @@ arg_parser.add_argument('-org', dest="org", action="append", help='search networ
 arg_parser.add_argument('-city', dest="city", action="append", help='search networks in city')
 arg_parser.add_argument('-country', dest="country", action="append", help='search networks in country')
 arg_parser.add_argument('-continent', dest="continent", action="append", help='search networks on the continent')
-arg_parser.add_argument('-square', dest="lat_long_lat_long", action="append", help='search networks in square area')
-arg_parser.add_argument('-circle', dest="lat_long_km", action="append", help='search networks in circle area')
+arg_parser.add_argument('-square', dest="lat_long_lat_long", action="append", help='search networks in square area (lat,long,lat,long)')
+arg_parser.add_argument('-circle', dest="lat_long_km", action="append", help='search networks in circle area (lat,long,km)')
 
-arg_parser.add_argument("-resolve-ripe", dest="resolve_ripe", action="store_true", help="ripe db resolve netname (faster)")
+arg_parser.add_argument("-resolve-rwhois", dest="resolve_ripe", action="store_true", help="rwhois db resolve netname (faster)")
 arg_parser.add_argument("-resolve-whois", dest="resolve_whois", action="store_true", help="whois resolve netname (slower)")
 
 arg_parser.add_argument("-kml", dest="save_as_kml", action="store_true", help="save coordinates of netblocks as KML")
 arg_parser.add_argument("-html", dest="save_to_html", help="save coordinates of netblocks as HTML")
+arg_parser.add_argument("-version", dest="version", action="store_true", help="show version")
 
-arg_parser.add_argument("items", nargs='*', default=['network', 'asn', 'org', 'continent', 'country', 'city', 'lat', 'long'], help="one or more: network,asn,org,continent,country,city,lat,long")
+arg_parser.add_argument("items", nargs='*', default=['network', 'continent', 'country', 'city', 'lat', 'long'], help="one or more: network,asn,org,continent,country,city,lat,long")
 
 def check_db():
 	try:
@@ -49,6 +51,10 @@ def check_db():
 		return True
 	except:
 		return False
+
+def show_db_info():
+	count, = sql.execute('SELECT COUNT(network) FROM geoip')
+	print count[0]
 
 def cidr_to_min_max(cidr):
 	if len( cidr.split('/') ) == 2:
@@ -69,7 +75,7 @@ def update(tmpfile):
 
 	DB_ASN = "http://web.archive.org/web/20191227183143/https://geolite.maxmind.com/download/geoip/database/GeoLite2-ASN-CSV.zip"
 	DB_COUNTRY = "http://web.archive.org/web/20191227183011/https://geolite.maxmind.com/download/geoip/database/GeoLite2-Country-CSV.zip"
-	DB_CITY = "http://web.archive.org/web/20191227182816/https://geolite.maxmind.com/download/geoip/database/GeoLite2-City-CSV.zip"
+	DB_CITY = "http://web.archive.org/web/20191227182816if_/https://geolite.maxmind.com/download/geoip/database/GeoLite2-City-CSV.zip"
 
 	def download(uri,target):
 		print uri
@@ -186,19 +192,19 @@ def do_search(items, params):
 			if l.find(piece) != -1:
 				return float( l.replace(piece,'') ) * sign
 		return float(l)
-	def _check_square(from_latitude,to_latitude,from_longitude,to_longitude):
+	def _check_square(from_latitude,from_longitude,to_latitude,to_longitude):
 		if from_latitude > to_latitude:
 			from_latitude,to_latitude = to_latitude,from_latitude
 		if from_longitude > to_longitude:
 			from_longitude,to_longitude = to_longitude,from_longitude
-		return from_latitude,to_latitude,from_longitude,to_longitude
+		return from_latitude,from_longitude,to_latitude,to_longitude
 
 	for attr,val in params.items():
 		if attr == 'square':
-			(from_latitude,to_latitude,from_longitude,to_longitude) = _check_square( *map( _sign, val.split(',') ) )
+			(from_latitude,from_longitude,to_latitude,to_longitude) = _check_square( *map( _sign, val.split(',') ) )
 			statement.append( "(lat >= ? AND lat <= ? AND long >= ? AND long <= ?)" )
 			args.extend( [from_latitude, to_latitude, from_longitude, to_longitude] )
-			squares.append( [from_latitude, to_latitude, from_longitude, to_longitude] )
+			squares.append( [from_latitude, from_longitude, to_latitude, to_longitude] )
 		elif attr == 'circle':
 			lat, lon, radius_km = val.split(',')
 			lat, lon = map( _sign, [lat, lon] )
@@ -206,7 +212,7 @@ def do_search(items, params):
 			#radius = float(radius_km) * ( 1.0 / ( 111.320*math.cos(lat) ) )
 			statement.append( "( ( (lat - ?)*(lat - ?) + (long - ?)*(long - ?) ) < ? )" )
 			args.extend( [lat, lat, lon, lon, radius*radius] )
-			circles.append( [lat, lon, radius] )
+			circles.append( [lat, lon, radius, float(radius_km)] )
 		elif attr == 'ipaddr':
 			ip, ip = cidr_to_min_max(val)
 			statement.append( "(network = (SELECT network FROM geoip WHERE ? BETWEEN ip_begin AND ip_end ORDER BY ip_begin DESC LIMIT 1) )" )
@@ -350,7 +356,7 @@ def to_kml(netblocks):
 	for square in squares:
 		places.append( draw_square( *map( float, square ) ) )
 	for circle in circles:
-		places.append( draw_circle( *map( float, circle ) ) )
+		places.append( draw_circle( *map( float, circle[:3] ) ) )
 	return etree.tostring( KML.Folder( *tuple(places) ) )
 
 def save_html(netblocks, items, outfile):
@@ -369,15 +375,16 @@ def save_html(netblocks, items, outfile):
 		folium.CircleMarker(location=map(float, lat_long.split(',')), popup=networks, radius=1).add_to(folium_map)
 
 	for circle in circles:
-		folium.CircleMarker(location=map(float, circle[:2]), radius=100, color="red").add_to(folium_map)
+		folium.Circle(location=map(float, circle[:2]), radius=circle[3]*1000, color="red").add_to(folium_map)
 
 	for square in squares:
+		print map(float, square)
 		from_latitude, from_longitude, to_latitude, to_longitude = map(float, square)
-		locations = [ (from_longitude,from_latitude) ]
-		locations.append( (to_longitude,from_latitude) )
-		locations.append( (to_longitude,to_latitude) )
-		locations.append( (from_longitude,to_latitude) )
-		locations.append( (from_longitude,from_latitude) )
+		locations = [ (from_latitude,from_longitude) ]
+		locations.append( (from_latitude,to_longitude) )
+		locations.append( (to_latitude,to_longitude) )
+		locations.append( (to_latitude,from_longitude) )
+		locations.append( (from_latitude,from_longitude) )
 		folium.PolyLine(locations, weight=1, color="red").add_to(folium_map)
 
 	folium_map.save(outfile)
@@ -413,7 +420,9 @@ def main( argv=['-h'] ):
 	items = args.items
 	netblocks = []
 
-	if args.update:
+	if args.version:
+		print __version__
+	elif args.update:
 		from tempfile import NamedTemporaryFile
 		tmpfile = NamedTemporaryFile()
 		try:
@@ -421,6 +430,8 @@ def main( argv=['-h'] ):
 		except Exception as e:
 			print str(e)
 		tmpfile.close()
+	elif args.info:
+		show_db_info()
 	else:
 		params = {}
 		if args.ipaddr:
