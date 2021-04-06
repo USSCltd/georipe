@@ -7,7 +7,7 @@ Many `geoip` tools and libraries provide geographical information by IP but can 
 
 ### Installation
 
-`pip install georipe`
+`pip2 install georipe`
 
 ### Download RIPE and GEOIP database
 
@@ -43,7 +43,7 @@ Next example. We try to find some nuclear object through simply query:
 
 Lets try find all networks around some nuclear station. For example Fukushima (20 kilemeters radius):
 
-`geoip -circle '28.80 50.85 20' -resolve-whois -kml > out2.kml`
+`geoip -circle 28.80,50.85,20 -resolve-whois -html out.html`
 
 Note, we use resolve from whois queries, because some networks not managed by RIPE and we dont have their in our ripe database.
 
@@ -63,10 +63,38 @@ For fast searching names and description of potentially affected networks we can
 
 `ripe -ip cisco.txt`
 
+### Others
+
+All netblock and network names around the world (2GiB RAM):
+
+`rwhois -inetnums 0.0.0.0/0 inetnum netname`
+
+Sort countries by internet activity (1GiB RAM):
+
+`geoip -networks 0.0.0.0/0 country | sort | uniq -c | sort -n`
+
+`geoip -networks 0.0.0.0/0 city|sort |uniq -c|sort -n |nl`
+
+Sort cities of country by internet activity:
+
+`geoip -country россия city|sort |uniq -c|sort -n`
+
+
+```
+shodan download out port:4786
+shodan parse --fields ip_str out.json.gz | geoip -ip -
+```
+
+`awk '{print $1}' /var/log/apache2/access.log | sort -u | geoip -ip - network country city`
+
+`cat bind.log | grep queries | awk '{print $6}' | cut -d '#' -f 1 | sort -u | geoip -ip - network country city`
+
 ### Notes
 
 ripe database source ftp://ftp.ripe.net/ripe/dbase/ripe.db.gz
-
-Note, it is only RIPE-part. It contains mostly Europeans and Asians networks. Networks of another continents (maintained by APNIC,AFRINIC,LACNIC and ARIN) may not full descriptions. However this database contains them network ranges.
+apnic database source https://ftp.apnic.net/apnic/whois/apnic.db.inetnum.gz
+afrinic database source https://ftp.afrinic.net/dbase/afrinic.db.gz
+lacnic database source https://ftp.lacnic.net/lacnic/dbase/lacnic.db.gz
+arin database source https://ftp.arin.net/pub/rr/arin.db
 
 geoip database source http://geolite.maxmind.com/download/geoip/database/GeoLite2-City-CSV.zip
