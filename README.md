@@ -9,9 +9,9 @@ Many `geoip` tools and libraries provide geographical information by IP but can 
 
 `pip2 install georipe`
 
-### Download RIPE and GEOIP database
+### Download WHOIS and GEOIP database
 
-`ripe -update`
+`rwhois -update`
 
 `geoip -update`
 
@@ -19,7 +19,7 @@ it takes around 600MB and 400MB disk spaces respectively.
 
 ### List of available options
 
-`ripe -h`
+`rwhois -h`
 
 `geoip -h`
 
@@ -27,19 +27,19 @@ it takes around 600MB and 400MB disk spaces respectively.
 
 So, suppose, we want to find some networks... For example, "The North Atlantic Treaty Organization" (we use '%' as substitution char for more fully searching):
 
-`ripe -netname nato-%`
+`rwhois -netname nato-%`
 
 Next, we can see where this networks are located:
 
-`ripe -netname nato-% inetnum | geoip -networks -`
+`rwhois -netname nato-% inetnum | geoip -networks -`
 
 Also we can import results into KML-file:
 
-`ripe -netname nato-% inetnum | geoip -networks - -kml > nato.kml`
+`rwhois -netname nato-% inetnum | geoip -networks - -kml > nato.kml`
 
 Next example. We try to find some nuclear object through simply query:
 
-`ripe -descr %nuclear% inetnum descr country`
+`rwhois -descr %nuclear% inetnum descr country`
 
 Lets try find all networks around some nuclear station. For example Fukushima (20 kilemeters radius):
 
@@ -61,7 +61,7 @@ Lets try to find cisco devices with vulnerable smartinstall service in country:
 
 For fast searching names and description of potentially affected networks we can use also next command:
 
-`ripe -ip cisco.txt`
+`rwhois -ip cisco.txt`
 
 ### Others
 
