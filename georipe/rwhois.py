@@ -5,7 +5,7 @@ import argparse
 import sys,os
 import itertools
 
-__version__ = '1.0.6.5'
+__version__ = '1.1.1'
 entries = ('ip_begin', 'ip_end', 'inetnum', 'netname', 'descr', 'city', 'country', 'notify', 'address', 'phone')
 RIR_DB = os.path.join( os.path.dirname(__file__), 'rir.db' )
 
@@ -95,7 +95,7 @@ def download(url):
 		resp = urllib2.urlopen(url)
 		size = int( resp.headers.getheader('content-length') or 0 )
 		downloaded = 0
-		tmpfile = NamedTemporaryFile()
+		tmpfile = NamedTemporaryFile(delete=False)
 		while True:
 			data = resp.read(4096)
 			if not data:
@@ -179,26 +179,31 @@ def update_ripe():
 	'inetnum:        212.140.128.192 - 212.140.128.255'
 	with download("ftp://ftp.ripe.net/ripe/dbase/ripe.db.gz") as tmpfile:
 		parse(tmpfile, key='inetnum', fields=('netname', 'descr', 'country', 'notify', 'address', 'phone'), source='ripe')
+		os.unlink(tmpfile.name)
 	
 def update_apnic():
 	'inetnum:        218.7.99.128 - 218.7.99.159'
 	with download("https://ftp.apnic.net/apnic/whois/apnic.db.inetnum.gz") as tmpfile:
 		parse(tmpfile, key='inetnum', fields=('netname', 'descr', 'country'), source='apnic')
+		os.unlink(tmpfile.name)
 	
 def update_afrinic():
 	'inetnum:        197.254.108.104 - 197.254.108.107'
 	with download("https://ftp.afrinic.net/dbase/afrinic.db.gz") as tmpfile:
 		parse(tmpfile, key='inetnum', fields=('netname', 'descr', 'country', 'notify', 'address', 'phone'), source='afrinic')
+		os.unlink(tmpfile.name)
 
 def update_lacnic():
 	'inetnum:    189.108.202.160/29'
 	with download("https://ftp.lacnic.net/lacnic/dbase/lacnic.db.gz") as tmpfile:
 		parse(tmpfile, key='inetnum', fields=('country', 'city'), source='lacnic')
+		os.unlink(tmpfile.name)
 
 def update_arin():
 	'route:          198.148.174.0/24'
 	with download("https://ftp.arin.net/pub/rr/arin.db.gz") as tmpfile:
 		parse(tmpfile, key='route', fields=('descr', 'notify'), source='arin')
+		os.unlink(tmpfile.name)
 	
 
 def rebuild_indexes():

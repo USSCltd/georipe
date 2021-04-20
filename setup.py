@@ -3,7 +3,7 @@ from distutils.core import setup
 setup(
   name = 'georipe',
   packages = ['georipe'],
-  version = '1.0.6.5',
+  version = '1.1.1',
   description = 'reverse WHOIS (ripe,apnic,afrinic,lacnic,arin) and GEOIP (geo2ip, ip2geo) mass searching tool',
   author = 'USSC',
   author_email = 'usscltd@gmail.com',
@@ -18,6 +18,8 @@ setup(
     'pykml',
     'lxml',
     'ipwhois',
-    'folium'
+    'folium',
+    'numpy',
+    'branca==0.3.1'
   ]
 )

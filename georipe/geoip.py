@@ -5,7 +5,7 @@ import argparse
 import sys,os
 import itertools
 
-__version__ = '1.0.6.5'
+__version__ = '1.1.1'
 GEOIP_DB = os.path.join( os.path.dirname(__file__), 'geoip.db' )
 
 try:
@@ -359,6 +359,9 @@ def to_kml(netblocks):
 		places.append( draw_circle( *map( float, circle[:3] ) ) )
 	return etree.tostring( KML.Folder( *tuple(places) ) )
 
+def html_escape(text):
+	return text.replace("`", "'").replace("'", "&#x27;").replace('"', "&quot;")
+
 def save_html(netblocks, items, outfile):
 	import folium
 	folium_map = folium.Map(location=[ netblocks[0].get('lat'), netblocks[0].get('long') ], zoom_start=10, tiles="CartoDB dark_matter")
@@ -366,11 +369,12 @@ def save_html(netblocks, items, outfile):
 	coordinates = {}
 	for netblock in netblocks:
 		about_netblock = ' | '.join( map( lambda i: str( netblock.get(i) or '' ).decode('utf-8'), items ) )
-		if "%.04f,%.04f" % ( netblock.get('lat'), netblock.get('long') ) in coordinates.keys():
-			coordinates[ "%.04f,%.04f" % ( netblock.get('lat'), netblock.get('long') ) ] += "<br>" + about_netblock
-		else:
-			coordinates[ "%.04f,%.04f" % ( netblock.get('lat'), netblock.get('long') ) ] = about_netblock
-	
+		if netblock.get('lat') and netblock.get('long'):
+			if "%.04f,%.04f" % ( netblock.get('lat'), netblock.get('long') ) in coordinates.keys():
+				coordinates[ "%.04f,%.04f" % ( netblock.get('lat'), netblock.get('long') ) ] += "<br>" + html_escape(about_netblock)
+			else:
+				coordinates[ "%.04f,%.04f" % ( netblock.get('lat'), netblock.get('long') ) ] = html_escape(about_netblock)
+		
 	for lat_long,networks in coordinates.items():
 		folium.CircleMarker(location=map(float, lat_long.split(',')), popup=networks, radius=1).add_to(folium_map)
 
