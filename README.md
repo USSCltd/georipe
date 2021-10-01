@@ -7,7 +7,7 @@ Many `geoip` tools and libraries provide geographical information by IP but can 
 
 ### Installation
 
-`pip2 install georipe`
+`pip3 install georipe`
 
 ### Download WHOIS and GEOIP database
 
