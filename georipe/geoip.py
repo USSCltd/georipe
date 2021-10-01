@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 import csv
 import sqlite3
 import argparse
@@ -11,7 +11,7 @@ GEOIP_DB = os.path.join( os.path.dirname(__file__), 'geoip.db' )
 try:
 	db = sqlite3.connect(GEOIP_DB)
 except:
-	print "permission denied to open %s" % GEOIP_DB
+	print( "permission denied to open %s" % GEOIP_DB)
 	exit()
 	
 db.text_factory = str
@@ -54,7 +54,7 @@ def check_db():
 
 def show_db_info():
 	count, = sql.execute('SELECT COUNT(network) FROM geoip')
-	print count[0]
+	print( count[0])
 
 def cidr_to_min_max(cidr):
 	if len( cidr.split('/') ) == 2:
@@ -69,7 +69,7 @@ def cidr_to_min_max(cidr):
 	return _min,_max
 
 def update(tmpfile):
-	import urllib2
+	import urllib.request
 	from zipfile import ZipFile
 	from io import BytesIO
 
@@ -78,9 +78,10 @@ def update(tmpfile):
 	DB_CITY = "http://web.archive.org/web/20191227182816if_/https://geolite.maxmind.com/download/geoip/database/GeoLite2-City-CSV.zip"
 
 	def download(uri,target):
-		print uri
-		resp = urllib2.urlopen(uri)
-		size = int( resp.headers.getheader('content-length') or 0 )
+		print(uri)
+		resp = urllib.request.urlopen(uri)
+		#import pdb; pdb.set_trace()
+		size = int( resp.headers.get('content-length') or resp.headers.get('x-archive-orig-content-length') or 0 )
 		downloaded = 0
 		while True:
 			data = resp.read(4096)
@@ -97,9 +98,9 @@ def update(tmpfile):
 
 	
 	download(uri=DB_CITY, target=tmpfile)
-	print '\nunpacking...'
+	print( '\nunpacking...' )
 	z = ZipFile( tmpfile )
-	lang = raw_input("select language (ja/zh-CN/fr/ru/en/pt-BR/de/es): ")
+	lang = input("select language (ja/zh-CN/fr/ru/en/pt-BR/de/es): ")
 	db_blocks = ''
 	db_locations = ''
 	for compressed_filepath in z.namelist():
@@ -108,23 +109,23 @@ def update(tmpfile):
 		elif compressed_filepath.find('GeoLite2-City-Locations-%s.csv' % lang) != -1:
 			db_locations = z.read(compressed_filepath)
 	if not db_blocks:
-		print "'GeoLite2-City-Blocks-IPv4.csv' not found in %s" % DB_CITY
+		print( "'GeoLite2-City-Blocks-IPv4.csv' not found in %s" % DB_CITY )
 		return False
 	elif not db_locations:
-		print "'GeoLite2-City-Locations-%s.csv' not found in %s" % (lang,DB_CITY)
+		print( "'GeoLite2-City-Locations-%s.csv' not found in %s" % (lang,DB_CITY) )
 		return False
 	z.close()
 
-	print 'importing...'
+	print( 'importing...' )
 	sql.execute("DROP TABLE IF EXISTS geoip")
 	sql.execute("CREATE TABLE geoip(ip_begin INT, ip_end INT, network TEXT, asn TEXT, org TEXT, continent TEXT, country TEXT, city TEXT, lat FLOAT, long FLOAT)")
 	locations = {}
 	for location in csv.DictReader( BytesIO(db_locations) ):
 		locations.update( { 
 			location['geoname_id'] : {
-				'continent': location['continent_name'].decode('utf-8').lower(),
-				'country': location['country_name'].decode('utf-8').lower(),
-				'city': location['city_name'].decode('utf-8').lower()
+				'continent': location['continent_name'].lower(),
+				'country': location['country_name'].lower(),
+				'city': location['city_name'].lower()
 			}
 		} )
 
@@ -156,16 +157,16 @@ def update(tmpfile):
 
 	tmpfile.truncate()
 	download(uri=DB_ASN, target=tmpfile)
-	print '\nunpacking...'
+	print( '\nunpacking...' )
 	z = ZipFile( tmpfile )
 	db_asn = ''
 	for compressed_filepath in z.namelist():
 		if compressed_filepath.find('GeoLite2-ASN-Blocks-IPv4.csv') != -1:
 			db_asn = z.read(compressed_filepath)
 	if not db_asn:
-		print "'GeoLite2-ASN-Blocks-IPv4.csv' not found in %s" % DB_ASN
+		print( "'GeoLite2-ASN-Blocks-IPv4.csv' not found in %s" % DB_ASN )
 		return False
-	print 'importing...'
+	print( 'importing...' )
 	n = 1
 	for asn in csv.DictReader( BytesIO(db_asn) ):
 		net = asn['network']
@@ -188,7 +189,7 @@ def do_search(items, params):
 	args = []
 	def _sign(l):
 		l = l.upper()
-		for piece,sign in {'N':1, 'S':-1, 'E': 1, 'W': -1}.items():
+		for piece,sign in list({'N':1, 'S':-1, 'E': 1, 'W': -1}.items()):
 			if l.find(piece) != -1:
 				return float( l.replace(piece,'') ) * sign
 		return float(l)
@@ -199,15 +200,15 @@ def do_search(items, params):
 			from_longitude,to_longitude = to_longitude,from_longitude
 		return from_latitude,from_longitude,to_latitude,to_longitude
 
-	for attr,val in params.items():
+	for attr,val in list(params.items()):
 		if attr == 'square':
-			(from_latitude,from_longitude,to_latitude,to_longitude) = _check_square( *map( _sign, val.split(',') ) )
+			(from_latitude,from_longitude,to_latitude,to_longitude) = _check_square( *list(map( _sign, val.split(',') ) ))
 			statement.append( "(lat >= ? AND lat <= ? AND long >= ? AND long <= ?)" )
 			args.extend( [from_latitude, to_latitude, from_longitude, to_longitude] )
 			squares.append( [from_latitude, from_longitude, to_latitude, to_longitude] )
 		elif attr == 'circle':
 			lat, lon, radius_km = val.split(',')
-			lat, lon = map( _sign, [lat, lon] )
+			lat, lon = list(map( _sign, [lat, lon] ))
 			radius = float(radius_km) * ( 1.0 / 110.574 )
 			#radius = float(radius_km) * ( 1.0 / ( 111.320*math.cos(lat) ) )
 			statement.append( "( ( (lat - ?)*(lat - ?) + (long - ?)*(long - ?) ) < ? )" )
@@ -234,21 +235,21 @@ def do_search(items, params):
 
 	results = []
 	query = ( "SELECT %s FROM geoip WHERE " % ','.join(items) ) + ' AND '.join(statement)
-	#print query
-	#print args
+	#print( query
+	#print( args
 	for result in sql.execute( query, args ):
-		results.append( dict( zip(items,result) ) )
+		results.append( dict( list(zip(items,result)) ) )
 	return results
 
 def search(items, params):
 	results = []
-	for attrs in itertools.product( *params.values() ):
-		results += do_search( items, dict( zip(params.keys(), attrs) ) )
+	for attrs in itertools.product( *list(params.values()) ):
+		results += do_search( items, dict( list(zip(list(params.keys()), attrs)) ) )
 	return results
 
 def geo_search(args):
 	params = {}
-	for attr,vals in args.items():
+	for attr,vals in list(args.items()):
 		params[attr] = []
 		for val in vals:
 			if os.path.isfile(val):
@@ -260,7 +261,7 @@ def geo_search(args):
 			elif val == '-':
 				while True:
 					try:
-						val = raw_input()
+						val = eval(input())
 						params[attr].append(val)
 					except:
 						break
@@ -333,7 +334,7 @@ def to_kml(netblocks):
 			KML.LineString(
 				KML.coordinates(
 					' '.join( map( lambda xy:'%.04f,%.04f,0.0 '%(xy[0],xy[1]), 
-							[ ( longitude+math.cos(2*math.pi/n*x)*radius, latitude+math.sin(2*math.pi/n*x)*radius ) for x in xrange(0,n+1) ]
+							[ ( longitude+math.cos(2*math.pi/n*x)*radius, latitude+math.sin(2*math.pi/n*x)*radius ) for x in range(0,n+1) ]
 						)
 					)
 				)
@@ -350,13 +351,13 @@ def to_kml(netblocks):
 				points[point].append( ' '.join( [network,netname] ) )
 			else:
 				points[point] = [network]
-	for point in points.keys():
-		lat,lon = map( float, point.split("/") )
+	for point in list(points.keys()):
+		lat,lon = list(map( float, point.split("/") ))
 		places.append( kml( "\n".join( points[point] ), lat, lon ) )
 	for square in squares:
-		places.append( draw_square( *map( float, square ) ) )
+		places.append( draw_square( *list(map( float, square ) ) ))
 	for circle in circles:
-		places.append( draw_circle( *map( float, circle[:3] ) ) )
+		places.append( draw_circle( *list(map( float, circle[:3] ) ) ))
 	return etree.tostring( KML.Folder( *tuple(places) ) )
 
 def html_escape(text):
@@ -368,22 +369,23 @@ def save_html(netblocks, items, outfile):
 
 	coordinates = {}
 	for netblock in netblocks:
-		about_netblock = ' | '.join( map( lambda i: str( netblock.get(i) or '' ).decode('utf-8'), items ) )
+		#about_netblock = ' | '.join( map( lambda i: str( netblock.get(i) or '' ).decode('utf-8'), items ) )
+		about_netblock = ' | '.join( [str( netblock.get(i) or '' ) for i in items] )
 		if netblock.get('lat') and netblock.get('long'):
-			if "%.04f,%.04f" % ( netblock.get('lat'), netblock.get('long') ) in coordinates.keys():
+			if "%.04f,%.04f" % ( netblock.get('lat'), netblock.get('long') ) in list(coordinates.keys()):
 				coordinates[ "%.04f,%.04f" % ( netblock.get('lat'), netblock.get('long') ) ] += "<br>" + html_escape(about_netblock)
 			else:
 				coordinates[ "%.04f,%.04f" % ( netblock.get('lat'), netblock.get('long') ) ] = html_escape(about_netblock)
 		
-	for lat_long,networks in coordinates.items():
-		folium.CircleMarker(location=map(float, lat_long.split(',')), popup=networks, radius=1).add_to(folium_map)
+	for lat_long,networks in list(coordinates.items()):
+		folium.CircleMarker(location=list(map(float, lat_long.split(','))), popup=networks, radius=1).add_to(folium_map)
 
 	for circle in circles:
-		folium.Circle(location=map(float, circle[:2]), radius=circle[3]*1000, color="red").add_to(folium_map)
+		folium.Circle(location=list(map(float, circle[:2])), radius=circle[3]*1000, color="red").add_to(folium_map)
 
 	for square in squares:
-		print map(float, square)
-		from_latitude, from_longitude, to_latitude, to_longitude = map(float, square)
+		print( map(float, square) )
+		from_latitude, from_longitude, to_latitude, to_longitude = list(map(float, square))
 		locations = [ (from_latitude,from_longitude) ]
 		locations.append( (from_latitude,to_longitude) )
 		locations.append( (to_latitude,to_longitude) )
@@ -399,22 +401,24 @@ def get_stat(netblocks, items):
 	ips = 0
 	for item in items:
 		if item == 'network':
-			for network in map( lambda n: n.get('network'), netblocks ):
+			#for network in map( lambda n: n.get('network'), netblocks ):
+			for network in [n.get('network') for n in netblocks]:
 				_min,_max = cidr_to_min_max(network)
 				ips += _max - _min
 			statistics[item] = '%d ip' % ips
 		else:
 			vals = set()
-			for val in map( lambda n: str(n.get(item)) or '', netblocks ):
+			#for val in map( lambda n: str(n.get(item)) or '', netblocks ):
+			for val in [str(n.get(item)) or '' for n in netblocks]:
 				vals.add(val)
 			statistics[item] = '%d %s' % ( len(vals), item )
 	return statistics
 
 def print_row( values, margins ):
 	row = []
-	for i in xrange( len(values) ):
-		row.append( values[i] + " " * ( margins[i] - len( values[i].decode('utf-8') ) ) )
-	print ' | '.join(row)
+	for i in range( len(values) ):
+		row.append( values[i] + " " * ( margins[i] - len( values[i]) ) )
+	print( ' | '.join(row))
 
 
 def main( argv=['-h'] ):
@@ -425,14 +429,14 @@ def main( argv=['-h'] ):
 	netblocks = []
 
 	if args.version:
-		print __version__
+		print( __version__)
 	elif args.update:
 		from tempfile import NamedTemporaryFile
 		tmpfile = NamedTemporaryFile()
 		try:
 			update(tmpfile)
 		except Exception as e:
-			print str(e)
+			print( str(e))
 		tmpfile.close()
 	elif args.info:
 		show_db_info()
@@ -469,7 +473,7 @@ def main( argv=['-h'] ):
 			if check_db():
 				netblocks = geo_search( params )
 			else:
-				print "update database first"
+				print( "update database first" )
 				return
 
 	if args.resolve_ripe:
@@ -480,24 +484,31 @@ def main( argv=['-h'] ):
 		items.insert(1, "netname")
 
 	if netblocks and args.save_as_kml:
-		print to_kml( netblocks )
+		print( to_kml( netblocks ) )
 	elif netblocks and args.save_to_html:
 		items.remove('lat')
 		items.remove('long')
 		save_html( netblocks, items, args.save_to_html )
 	elif netblocks:
 		summary = get_stat(netblocks, items)
-		margins = map( lambda i: max( map( lambda n: len(str(n.get(i) or '').decode('utf-8')), netblocks ) + [len(i), len(summary[i])] ), items )
+		#margins = map( lambda i: max( map( lambda n: len(str(n.get(i) or '').decode('utf-8')), netblocks ) + [len(i), len(summary[i])] ), items )
+		margins = [max( [len(str(n.get(i) or '')) for n in netblocks] + [len(i), len(summary[i])] ) for i in items]
 		if len(items) > 1:
-			print_row( tuple(items), margins )
-			print_row( tuple( map( lambda m: '-'*m, margins ) ), margins )
+			print_row(tuple(items), margins )
+			#print(tuple( map( lambda m: '-'*m, margins ) ), margins )
+			print_row(tuple( ['-'*m for m in margins] ), margins )
 			for netblock in netblocks:
-				print_row( map( lambda i: str( netblock.get(i) or '' ), items ), margins )
-			print_row( tuple( map( lambda m: '-'*m, margins ) ), margins )
-			print_row( tuple( map( lambda i: str( summary.get(i) or '' ), items ) ), margins )
+				#print (map( lambda i: str( netblock.get(i) or '' ), items ), margins )
+				print_row([str( netblock.get(i) or '' ) for i in items], margins )
+			#print(tuple( map( lambda m: '-'*m, margins ) ), margins )
+			print_row(tuple( ['-'*m for m in margins] ), margins )
+			#print(tuple( map( lambda i: str( summary.get(i) or '' ), items ) ), margins )
+			print_row(tuple( [str( summary.get(i) or '' ) for i in items] ), margins )
+
 		else:
 			for netblock in netblocks:
-				print_row( map( lambda i: str( netblock.get(i) or '' ), items ), [0] )
+				#print (map( lambda i: str( netblock.get(i) or '' ), items ), [0] )
+				print_row(([str( netblock.get(i) or '' ) for i in items], [0] ))
 
 	if db:
 		db.close()
