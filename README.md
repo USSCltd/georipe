@@ -111,9 +111,13 @@ for result in rwhois.search(["inetnum","netname","descr"], {"inetnums":["77.0.0.
 ### Notes
 
 ripe database source ftp://ftp.ripe.net/ripe/dbase/ripe.db.gz
+
 apnic database source https://ftp.apnic.net/apnic/whois/apnic.db.inetnum.gz
+
 afrinic database source https://ftp.afrinic.net/dbase/afrinic.db.gz
+
 lacnic database source https://ftp.lacnic.net/lacnic/dbase/lacnic.db.gz
+
 arin database source https://ftp.arin.net/pub/rr/arin.db
 
 geoip database source http://geolite.maxmind.com/download/geoip/database/GeoLite2-City-CSV.zip
