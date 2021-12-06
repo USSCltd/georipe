@@ -4,8 +4,9 @@ import sqlite3
 import argparse
 import sys,os
 import itertools
+from shutil import copyfile
 
-__version__ = '2.0.0'
+__version__ = '2.0.1'
 GEOIP_DB = os.path.join( os.path.dirname(__file__), 'geoip.db' )
 
 try:
@@ -13,7 +14,7 @@ try:
 except:
 	print("permission denied to open %s" % GEOIP_DB)
 	exit()
-	
+
 db.text_factory = str
 sql = db.cursor()
 
@@ -22,7 +23,7 @@ squares = []
 circles = []
 
 arg_parser = argparse.ArgumentParser()
-arg_parser.add_argument("-update", dest='update', action="store_true", help='update local database from remote ZIP-archive')
+arg_parser.add_argument("-update", dest='update', nargs='?', const='', help='update local database from remote ZIP-archive')
 arg_parser.add_argument("-info", dest='info', action="store_true", help='show total amount netblocks')
 
 arg_parser.add_argument('-ip', dest="ipaddr", action="append", help='search network by IP')
@@ -68,10 +69,10 @@ def cidr_to_min_max(cidr):
 	_max = _min + mask
 	return _min,_max
 
-def update(tmpfile):
+def update(tmpfile, url=None):
 	import urllib.request
 	from zipfile import ZipFile
-	from io import BytesIO
+	from io import StringIO
 
 	DB_ASN = "http://web.archive.org/web/20191227183143/https://geolite.maxmind.com/download/geoip/database/GeoLite2-ASN-CSV.zip"
 	DB_COUNTRY = "http://web.archive.org/web/20191227183011/https://geolite.maxmind.com/download/geoip/database/GeoLite2-Country-CSV.zip"
@@ -95,8 +96,10 @@ def update(tmpfile):
 				sys.stdout.write( "\r%d bytes" % downloaded )
 			sys.stdout.flush()
 
-	
-	download(uri=DB_CITY, target=tmpfile)
+	if url and os.path.isfile(url):
+		copyfile(url, tmpfile.name)
+	else:
+		download(uri=url or DB_CITY, target=tmpfile)
 	print( '\nunpacking...' )
 	z = ZipFile( tmpfile )
 	lang = input("select language (ja/zh-CN/fr/ru/en/pt-BR/de/es): ")
@@ -104,9 +107,9 @@ def update(tmpfile):
 	db_locations = ''
 	for compressed_filepath in z.namelist():
 		if compressed_filepath.find('GeoLite2-City-Blocks-IPv4.csv') != -1:
-			db_blocks = z.read(compressed_filepath)
+			db_blocks = z.read(compressed_filepath).decode()
 		elif compressed_filepath.find('GeoLite2-City-Locations-%s.csv' % lang) != -1:
-			db_locations = z.read(compressed_filepath)
+			db_locations = z.read(compressed_filepath).decode()
 	if not db_blocks:
 		print( "'GeoLite2-City-Blocks-IPv4.csv' not found in %s" % DB_CITY )
 		return False
@@ -119,7 +122,8 @@ def update(tmpfile):
 	sql.execute("DROP TABLE IF EXISTS geoip")
 	sql.execute("CREATE TABLE geoip(ip_begin INT, ip_end INT, network TEXT, asn TEXT, org TEXT, continent TEXT, country TEXT, city TEXT, lat FLOAT, long FLOAT)")
 	locations = {}
-	for location in csv.DictReader( BytesIO(db_locations) ):
+	
+	for location in csv.DictReader(StringIO(db_locations)):
 		locations.update( { 
 			location['geoname_id'] : {
 				'continent': location['continent_name'].lower(),
@@ -129,7 +133,7 @@ def update(tmpfile):
 		} )
 
 	n = 0
-	for block in csv.DictReader( BytesIO(db_blocks) ):
+	for block in csv.DictReader(StringIO(db_blocks)):
 		location = locations.get( block['geoname_id'] )
 		if location:
 			continent = location['continent']
@@ -154,28 +158,31 @@ def update(tmpfile):
 	sys.stdout.write("\r%d networks\n" % n)
 	sys.stdout.flush()
 
-	tmpfile.truncate()
-	download(uri=DB_ASN, target=tmpfile)
-	print( '\nunpacking...' )
-	z = ZipFile( tmpfile )
-	db_asn = ''
-	for compressed_filepath in z.namelist():
-		if compressed_filepath.find('GeoLite2-ASN-Blocks-IPv4.csv') != -1:
-			db_asn = z.read(compressed_filepath)
-	if not db_asn:
-		print( "'GeoLite2-ASN-Blocks-IPv4.csv' not found in %s" % DB_ASN )
-		return False
-	print( 'importing...' )
-	n = 1
-	for asn in csv.DictReader( BytesIO(db_asn) ):
-		net = asn['network']
-		num = asn['autonomous_system_number']
-		org = asn['autonomous_system_organization']
-		sql.execute( "UPDATE geoip SET asn=?, org=? WHERE network = ?", (num,org,net) )
-		if n % 25000 == 0:
-			sys.stdout.write("\r%d ASNs" % n)
-			sys.stdout.flush()
-		n += 1
+	try:
+		tmpfile.truncate()
+		download(uri=DB_ASN, target=tmpfile)
+		print( '\nunpacking...' )
+		z = ZipFile( tmpfile )
+		db_asn = ''
+		for compressed_filepath in z.namelist():
+			if compressed_filepath.find('GeoLite2-ASN-Blocks-IPv4.csv') != -1:
+				db_asn = z.read(compressed_filepath)
+		if not db_asn:
+			print( "'GeoLite2-ASN-Blocks-IPv4.csv' not found in %s" % DB_ASN )
+			return False
+		print( 'importing...' )
+		n = 1
+		for asn in csv.DictReader( BytesIO(db_asn) ):
+			net = asn['network']
+			num = asn['autonomous_system_number']
+			org = asn['autonomous_system_organization']
+			sql.execute( "UPDATE geoip SET asn=?, org=? WHERE network = ?", (num,org,net) )
+			if n % 25000 == 0:
+				sys.stdout.write("\r%d ASNs" % n)
+				sys.stdout.flush()
+			n += 1
+	except Exception as e:
+		print(str(e))
 
 	db.commit()
 	sys.stdout.write("\r%d ASNs\n" % n)
@@ -426,11 +433,14 @@ def main( argv=['-h'] ):
 
 	if args.version:
 		print(__version__)
-	elif args.update:
+	elif args.update != None:
 		from tempfile import NamedTemporaryFile
 		tmpfile = NamedTemporaryFile()
 		try:
-			update(tmpfile)
+			if args.update:
+				update(tmpfile, url=args.update)
+			else:
+				update(tmpfile)
 		except Exception as e:
 			print(str(e))
 		tmpfile.close()

@@ -5,12 +5,12 @@ import argparse
 import sys,os
 import itertools
 
-__version__ = '2.0.0'
+__version__ = '2.0.1'
 entries = ('ip_begin', 'ip_end', 'inetnum', 'netname', 'descr', 'city', 'country', 'notify', 'address', 'phone')
 RIR_DB = os.path.join( os.path.dirname(__file__), 'rir.db' )
 
 try:
-	db = sqlite3.connect(RIR_DB)
+	db = sqlite3.connect(RIR_DB, check_same_thread=False)
 except:
 	print("permission denied to open %s" % RIR_DB)
 	exit()
@@ -125,6 +125,7 @@ def parse(tmpfile, key, fields, source):
 			nets = {}
 			n = 1
 			for line in gz:
+				line = line.decode(errors='ignore')
 				for entry in fields:
 					if line.startswith(entry+':'):
 						if entry == key:
@@ -157,7 +158,7 @@ def parse(tmpfile, key, fields, source):
 					elif line.strip() == '' and nets and nets.get('inetnum'):
 						if nets.get('netname') != 'NON-RIPE-NCC-MANAGED-ADDRESS-BLOCK':
 							statement = "INSERT INTO networks VALUES({values}, '{source}')".format(values=','.join( list(map(lambda e:'?', entries)) ), source=source)
-							for i in xrange( len( nets.get('inetnum') ) ):
+							for i in range( len( nets.get('inetnum') ) ):
 								sql.execute( statement, list(map(lambda e:nets.get(e)[i] if type(nets.get(e))==list else nets.get(e,''), entries)) )
 							n += 1
 							if n % 25000 == 0:
