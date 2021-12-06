@@ -89,6 +89,25 @@ shodan parse --fields ip_str out.json.gz | geoip -ip -
 
 `cat bind.log | grep queries | awk '{print $6}' | cut -d '#' -f 1 | sort -u | geoip -ip - network country city`
 
+### API
+
+```
+from georipe import geoip
+
+results = geoip.search(["network","city","country"],{"ipaddr":["8.8.8.8"]})
+for result in geoip.search(["network","city","country"],{"networks":["1.0.0.0/8"]}):
+  print(f"{result['network']} {result['city']} {result['country']}")
+results = geoip.search(["network","city","country"],{"city":["london","paris"],"networks":["220.100.0.0/15"]})
+```
+
+```
+from georipe import rwhois
+
+netname = rwhois.search(["inetnum","netname","descr"], {"ipaddr":["1.2.3.4"]})[0]['netname']
+for result in rwhois.search(["inetnum","netname","descr"], {"inetnums":["77.0.0.0/8"]}):
+	print(f"{result['inetnum']} {result['netname']} {result['descr']}")
+```
+
 ### Notes
 
 ripe database source ftp://ftp.ripe.net/ripe/dbase/ripe.db.gz
