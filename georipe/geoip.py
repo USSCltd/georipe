@@ -5,13 +5,13 @@ import argparse
 import sys,os
 import itertools
 
-__version__ = '1.1.1'
+__version__ = '2.0.0'
 GEOIP_DB = os.path.join( os.path.dirname(__file__), 'geoip.db' )
 
 try:
 	db = sqlite3.connect(GEOIP_DB)
 except:
-	print( "permission denied to open %s" % GEOIP_DB)
+	print("permission denied to open %s" % GEOIP_DB)
 	exit()
 	
 db.text_factory = str
@@ -39,7 +39,7 @@ arg_parser.add_argument('-circle', dest="lat_long_km", action="append", help='se
 arg_parser.add_argument("-resolve-rwhois", dest="resolve_ripe", action="store_true", help="rwhois db resolve netname (faster)")
 arg_parser.add_argument("-resolve-whois", dest="resolve_whois", action="store_true", help="whois resolve netname (slower)")
 
-arg_parser.add_argument("-kml", dest="save_as_kml", action="store_true", help="save coordinates of netblocks as KML")
+arg_parser.add_argument("-kml", dest="save_to_kml", help="save coordinates of netblocks as KML")
 arg_parser.add_argument("-html", dest="save_to_html", help="save coordinates of netblocks as HTML")
 arg_parser.add_argument("-version", dest="version", action="store_true", help="show version")
 
@@ -54,7 +54,7 @@ def check_db():
 
 def show_db_info():
 	count, = sql.execute('SELECT COUNT(network) FROM geoip')
-	print( count[0])
+	print(count[0])
 
 def cidr_to_min_max(cidr):
 	if len( cidr.split('/') ) == 2:
@@ -80,7 +80,6 @@ def update(tmpfile):
 	def download(uri,target):
 		print(uri)
 		resp = urllib.request.urlopen(uri)
-		#import pdb; pdb.set_trace()
 		size = int( resp.headers.get('content-length') or resp.headers.get('x-archive-orig-content-length') or 0 )
 		downloaded = 0
 		while True:
@@ -235,8 +234,6 @@ def do_search(items, params):
 
 	results = []
 	query = ( "SELECT %s FROM geoip WHERE " % ','.join(items) ) + ' AND '.join(statement)
-	#print( query
-	#print( args
 	for result in sql.execute( query, args ):
 		results.append( dict( list(zip(items,result)) ) )
 	return results
@@ -261,7 +258,7 @@ def geo_search(args):
 			elif val == '-':
 				while True:
 					try:
-						val = eval(input())
+						val = input()
 						params[attr].append(val)
 					except:
 						break
@@ -288,7 +285,7 @@ def resolve_ripe(netblocks):
 			if netname:
 				netblock['netname'] = netname[:20]+'..' if len(netname) > 20 else netname
 
-def to_kml(netblocks):
+def save_kml(netblocks, outfile):
 	from pykml.factory import KML_ElementMaker as KML
 	from lxml import etree
 	import math
@@ -358,7 +355,9 @@ def to_kml(netblocks):
 		places.append( draw_square( *list(map( float, square ) ) ))
 	for circle in circles:
 		places.append( draw_circle( *list(map( float, circle[:3] ) ) ))
-	return etree.tostring( KML.Folder( *tuple(places) ) )
+	
+	with open(outfile, "wb") as o:
+		o.write( etree.tostring( KML.Folder( *tuple(places) ) ) )
 
 def html_escape(text):
 	return text.replace("`", "'").replace("'", "&#x27;").replace('"', "&quot;")
@@ -369,7 +368,6 @@ def save_html(netblocks, items, outfile):
 
 	coordinates = {}
 	for netblock in netblocks:
-		#about_netblock = ' | '.join( map( lambda i: str( netblock.get(i) or '' ).decode('utf-8'), items ) )
 		about_netblock = ' | '.join( [str( netblock.get(i) or '' ) for i in items] )
 		if netblock.get('lat') and netblock.get('long'):
 			if "%.04f,%.04f" % ( netblock.get('lat'), netblock.get('long') ) in list(coordinates.keys()):
@@ -384,7 +382,7 @@ def save_html(netblocks, items, outfile):
 		folium.Circle(location=list(map(float, circle[:2])), radius=circle[3]*1000, color="red").add_to(folium_map)
 
 	for square in squares:
-		print( map(float, square) )
+		print( list(map(float, square)) )
 		from_latitude, from_longitude, to_latitude, to_longitude = list(map(float, square))
 		locations = [ (from_latitude,from_longitude) ]
 		locations.append( (from_latitude,to_longitude) )
@@ -401,14 +399,12 @@ def get_stat(netblocks, items):
 	ips = 0
 	for item in items:
 		if item == 'network':
-			#for network in map( lambda n: n.get('network'), netblocks ):
 			for network in [n.get('network') for n in netblocks]:
 				_min,_max = cidr_to_min_max(network)
 				ips += _max - _min
 			statistics[item] = '%d ip' % ips
 		else:
 			vals = set()
-			#for val in map( lambda n: str(n.get(item)) or '', netblocks ):
 			for val in [str(n.get(item)) or '' for n in netblocks]:
 				vals.add(val)
 			statistics[item] = '%d %s' % ( len(vals), item )
@@ -418,7 +414,7 @@ def print_row( values, margins ):
 	row = []
 	for i in range( len(values) ):
 		row.append( values[i] + " " * ( margins[i] - len( values[i]) ) )
-	print( ' | '.join(row))
+	print(' | '.join(row))
 
 
 def main( argv=['-h'] ):
@@ -429,14 +425,14 @@ def main( argv=['-h'] ):
 	netblocks = []
 
 	if args.version:
-		print( __version__)
+		print(__version__)
 	elif args.update:
 		from tempfile import NamedTemporaryFile
 		tmpfile = NamedTemporaryFile()
 		try:
 			update(tmpfile)
 		except Exception as e:
-			print( str(e))
+			print(str(e))
 		tmpfile.close()
 	elif args.info:
 		show_db_info()
@@ -483,31 +479,25 @@ def main( argv=['-h'] ):
 		resolve_whois( netblocks )
 		items.insert(1, "netname")
 
-	if netblocks and args.save_as_kml:
-		print( to_kml( netblocks ) )
+	if netblocks and args.save_to_kml:
+		save_kml(netblocks, args.save_to_kml)
 	elif netblocks and args.save_to_html:
 		items.remove('lat')
 		items.remove('long')
-		save_html( netblocks, items, args.save_to_html )
+		save_html(netblocks, items, args.save_to_html)
 	elif netblocks:
 		summary = get_stat(netblocks, items)
-		#margins = map( lambda i: max( map( lambda n: len(str(n.get(i) or '').decode('utf-8')), netblocks ) + [len(i), len(summary[i])] ), items )
 		margins = [max( [len(str(n.get(i) or '')) for n in netblocks] + [len(i), len(summary[i])] ) for i in items]
 		if len(items) > 1:
 			print_row(tuple(items), margins )
-			#print(tuple( map( lambda m: '-'*m, margins ) ), margins )
 			print_row(tuple( ['-'*m for m in margins] ), margins )
 			for netblock in netblocks:
-				#print (map( lambda i: str( netblock.get(i) or '' ), items ), margins )
 				print_row([str( netblock.get(i) or '' ) for i in items], margins )
-			#print(tuple( map( lambda m: '-'*m, margins ) ), margins )
 			print_row(tuple( ['-'*m for m in margins] ), margins )
-			#print(tuple( map( lambda i: str( summary.get(i) or '' ), items ) ), margins )
 			print_row(tuple( [str( summary.get(i) or '' ) for i in items] ), margins )
 
 		else:
 			for netblock in netblocks:
-				#print (map( lambda i: str( netblock.get(i) or '' ), items ), [0] )
 				print_row(([str( netblock.get(i) or '' ) for i in items], [0] ))
 
 	if db:
