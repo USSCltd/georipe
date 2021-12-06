@@ -1,21 +1,21 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 import sqlite3
 import netaddr
 import argparse
 import sys,os
 import itertools
 
-__version__ = '1.1.1'
+__version__ = '2.0.0'
 entries = ('ip_begin', 'ip_end', 'inetnum', 'netname', 'descr', 'city', 'country', 'notify', 'address', 'phone')
 RIR_DB = os.path.join( os.path.dirname(__file__), 'rir.db' )
 
 try:
 	db = sqlite3.connect(RIR_DB)
 except:
-	print "permission denied to open %s" % RIR_DB
+	print("permission denied to open %s" % RIR_DB)
 	exit()
 
-db.text_factory = str
+db.text_factory = lambda b: b.decode(errors='ignore')
 sql = db.cursor()
 
 items = ['inetnum', 'netname']
@@ -54,14 +54,14 @@ def check_db():
 		sql.execute("select 1 from networks limit 1")
 		return True
 	except:
-		sql.execute('CREATE TABLE networks(%s, source TEXT)' % ','.join( map(lambda e:"%s INT"%e if e.startswith('ip_') else "%s TEXT"%e, entries) ))
+		sql.execute('CREATE TABLE networks(%s, source TEXT)' % ','.join( list(map(lambda e:"%s INT"%e if e.startswith('ip_') else "%s TEXT"%e, entries)) ))
 		return False
 
 def show_db_info():
 	for source in ('RIPE', 'AFRINIC', 'APNIC', 'LACNIC', 'ARIN'):
-		print source + ': ',
+		print(source + ': ', end="")
 		count, = sql.execute('SELECT COUNT(inetnum) FROM networks WHERE source=?', (source.lower(),))
-		print count[0]
+		print(count[0])
 
 def cidr_to_min_max(cidr):
 	if len( cidr.split('/') ) == 2:
@@ -71,7 +71,7 @@ def cidr_to_min_max(cidr):
 		mask = 32
 	octets = ip_begin.split('.')
 	all_octets = []
-	for i in xrange(4):
+	for i in range(4):
 		i = octets.pop(0) if octets != [] else 0
 		all_octets.append(i)
 	a,b,c,d = all_octets
@@ -87,13 +87,13 @@ def reset_db(source):
 
 
 def download(url):
-	import urllib2
+	import urllib.request
 	from tempfile import NamedTemporaryFile
 
 	try:
-		print url
-		resp = urllib2.urlopen(url)
-		size = int( resp.headers.getheader('content-length') or 0 )
+		print(url)
+		resp = urllib.request.urlopen(url)
+		size = int( resp.headers.get('content-length') or 0 )
 		downloaded = 0
 		tmpfile = NamedTemporaryFile(delete=False)
 		while True:
@@ -110,12 +110,12 @@ def download(url):
 			sys.stdout.flush()
 		return tmpfile
 	except Exception as e:
-		print str(e)
+		print(str(e))
 
 def parse(tmpfile, key, fields, source):
 	import gzip
 
-	print "\nunpacking..."
+	print("\nunpacking...")
 	fields = ('ip_begin', 'ip_end') + (key,) + fields
 	try:
 		with gzip.open(tmpfile.name, 'rb') as gz:
@@ -156,9 +156,9 @@ def parse(tmpfile, key, fields, source):
 								nets[entry] = content
 					elif line.strip() == '' and nets and nets.get('inetnum'):
 						if nets.get('netname') != 'NON-RIPE-NCC-MANAGED-ADDRESS-BLOCK':
-							statement = "INSERT INTO networks VALUES({values}, '{source}')".format(values=','.join( map(lambda e:'?', entries) ), source=source)
+							statement = "INSERT INTO networks VALUES({values}, '{source}')".format(values=','.join( list(map(lambda e:'?', entries)) ), source=source)
 							for i in xrange( len( nets.get('inetnum') ) ):
-								sql.execute( statement, map(lambda e:nets.get(e)[i] if type(nets.get(e))==list else nets.get(e,''), entries) )
+								sql.execute( statement, list(map(lambda e:nets.get(e)[i] if type(nets.get(e))==list else nets.get(e,''), entries)) )
 							n += 1
 							if n % 25000 == 0:
 								db.commit()
@@ -172,7 +172,7 @@ def parse(tmpfile, key, fields, source):
 		tmpfile.close()
 
 	except Exception as e:
-		print str(e)
+		print(str(e))
 
 
 def update_ripe():
@@ -219,7 +219,7 @@ def rebuild_indexes():
 def do_search(items, params):
 	statement = []
 	args = []
-	for attr,val in params.items():
+	for attr,val in list(params.items()):
 		if attr == 'ipaddr':
 			ip, ip = cidr_to_min_max(val)
 			statement.append( "(inetnum = (SELECT inetnum FROM networks WHERE ? BETWEEN ip_begin AND ip_end ORDER BY ip_begin DESC LIMIT 1) )" )
@@ -245,23 +245,21 @@ def do_search(items, params):
 
 	results = []
 	query = ( "SELECT %s FROM networks WHERE " % ','.join(items) ) + ' AND '.join(statement)
-	#print query
-	#print args
 	for result in sql.execute( query, args ):
-		results.append( dict( zip(items,result) ) )
+		results.append( dict( list(zip(items,result)) ) )
 	return results
 
 
 def search(items, params):
 	results = []
 	for attrs in itertools.product( *params.values() ):
-		results += do_search( items, dict( zip(params.keys(), attrs) ) )
+		results += do_search( items, dict( list(zip(params.keys(), attrs)) ) )
 	return results
 
 
 def rir_search(args):
 	params = {}
-	for attr,vals in args.items():
+	for attr,vals in list(args.items()):
 		params[attr] = []
 		for val in vals:
 			if os.path.isfile(val):
@@ -273,7 +271,7 @@ def rir_search(args):
 			elif val == '-':
 				while True:
 					try:
-						val = raw_input()
+						val = input()
 						params[attr].append(val)
 					except:
 						break
@@ -287,7 +285,7 @@ def discover_tree(netblocks):
 	deep = 0
 	while netblocks:
 		inetnum = netblocks[0]['inetnum']
-		print " "*deep + inetnum
+		print(" "*deep + inetnum)
 		ip_from, ip_to = cidr_to_min_max(inetnum)
 		ip_from -= 1
 		ip_to += 1
@@ -298,20 +296,17 @@ def discover_tree(netblocks):
 
 def print_results(netblocks):
 	summary = get_stat(netblocks, items)
-	try:
-		margins = map( lambda i: max( map( lambda n: len(str(n.get(i) or '').decode('utf-8')), netblocks ) + [len(i), len(summary[i])] ), items )
-	except:
-		margins = map( lambda i: max( map( lambda n: len(str(n.get(i) or '')), netblocks ) + [len(i), len(summary[i])] ), items )
+	margins = list(map( lambda i: max( list(map( lambda n: len(str(n.get(i) or '')), netblocks )) + [len(i), len(summary[i])] ), items ))
 	if len(items) > 1:
 		print_row( tuple(items), margins )
 		print_row( tuple( map( lambda m: '-'*m, margins ) ), margins )
 		for netblock in netblocks:
-			print_row( map( lambda i: str( netblock.get(i) or '' ), items ), margins )
+			print_row( list(map( lambda i: str( netblock.get(i) or '' ), items )), margins )
 		print_row( tuple( map( lambda m: '-'*m, margins ) ), margins )
 		print_row( tuple( map( lambda i: str( summary.get(i) or '' ), items ) ), margins )
 	else:
 		for netblock in netblocks:
-			print_row( map( lambda i: str( netblock.get(i) or '' ), items ), [0] )
+			print_row( list(map( lambda i: str( netblock.get(i) or '' ), items )), [0] )
 
 
 def get_stat(netblocks, items):
@@ -319,13 +314,13 @@ def get_stat(netblocks, items):
 	for item in items:
 		if item == 'inetnum':
 			ips = 0
-			for network in map( lambda n: n.get('inetnum'), netblocks ):
+			for network in [n.get('inetnum') for n in netblocks]:
 				_min,_max = cidr_to_min_max(network)
 				ips += _max - _min
 			statistics[item] = '%d ip' % ips
 		else:
 			vals = set()
-			for val in map( lambda n: str(n.get(item)) or '', netblocks ):
+			for val in [str(n.get(item)) or '' for n in netblocks]:
 				vals.add(val)
 			statistics[item] = '%d %s' % ( len(vals), item )
 	return statistics
@@ -333,12 +328,9 @@ def get_stat(netblocks, items):
 
 def print_row( values, margins ):
 	row = []
-	for i in xrange( len(values) ):
-		try:
-			row.append( values[i] + " " * ( margins[i] - len( values[i].decode('utf-8') ) ) )
-		except:
-			row.append( values[i] + " " * ( margins[i] - len( values[i] ) ) )
-	print ' | '.join(row)
+	for i in range( len(values) ):
+		row.append( values[i] + " " * ( margins[i] - len( values[i] ) ) )
+	print(' | '.join(row))
 
 
 def main( argv=["-h"] ):
@@ -349,7 +341,7 @@ def main( argv=["-h"] ):
 	netblocks = []
 
 	if args.version:
-		print __version__
+		print(__version__)
 	elif args.update != None:
 		if not args.update:
 			args.update = ["afrinic", "lacnic", "apnic", "arin", "ripe"]
@@ -360,7 +352,7 @@ def main( argv=["-h"] ):
 				reset_db(continent)
 				update()
 			except Exception as e:
-				print "\n{update} error: {error}".format( update=update.__name__, error=str(e) )
+				print("\n{update} error: {error}".format( update=update.__name__, error=str(e) ))
 		rebuild_indexes()
 	elif args.info:
 		show_db_info()
@@ -392,7 +384,7 @@ def main( argv=["-h"] ):
 			if check_db():
 				netblocks = rir_search( params )
 			else:
-				print "please update database"
+				print("please update database")
 				return
 
 	if netblocks:
@@ -403,7 +395,6 @@ def main( argv=["-h"] ):
 
 	if db:
 		db.close()
-
 
 if __name__ == '__main__':
 	main( sys.argv[1:] )
