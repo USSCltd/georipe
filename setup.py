@@ -3,7 +3,7 @@ from distutils.core import setup
 setup(
   name = 'georipe',
   packages = ['georipe'],
-  version = '2.0.1',
+  version = '2.0.2',
   description = 'reverse WHOIS (ripe,apnic,afrinic,lacnic,arin) and GEOIP (geo2ip, ip2geo) mass searching tool',
   author = 'USSC',
   author_email = 'usscltd@gmail.com',

@@ -508,7 +508,7 @@ def main( argv=['-h'] ):
 
 		else:
 			for netblock in netblocks:
-				print_row(([str( netblock.get(i) or '' ) for i in items], [0] ))
+				print_row([str( netblock.get(i) or '' ) for i in items], [0] )
 
 	if db:
 		db.close()
